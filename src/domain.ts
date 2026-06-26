@@ -61,6 +61,7 @@ export interface LectureNote {
   flashcards: Array<{ front: string; back: string }>
   citations: Array<{ label: string; segmentIds: string[] }>
   createdAt: string
+  editedAt?: string
 }
 
 export interface ProviderProfile {

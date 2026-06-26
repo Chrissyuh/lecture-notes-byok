@@ -28,6 +28,13 @@ import {
   type TranscriptSegment,
 } from './domain'
 import { downloadText, flashcardsToCsv, noteToMarkdown } from './exporters'
+import {
+  editableDraftToNotePatch,
+  hasNoteDraftChanges,
+  hasValidNoteDraft,
+  noteToEditableDraft,
+  type EditableNoteDraft,
+} from './noteEdits'
 import { generateNotesWithOpenAi, transcribeWithOpenAi, validateOpenAiKey } from './openaiProvider'
 import { findChangedTranscriptSegments, hasEmptyTranscriptDraft } from './transcript'
 
@@ -69,6 +76,7 @@ function App() {
   const [manualTranscript, setManualTranscript] = useState('')
   const [importingAudio, setImportingAudio] = useState(false)
   const [segmentDrafts, setSegmentDrafts] = useState<Record<string, string>>({})
+  const [noteDraft, setNoteDraft] = useState<EditableNoteDraft>()
 
   useEffect(() => {
     void ensureBootstrapData().then(() => setReady(true))
@@ -98,6 +106,7 @@ function App() {
     () => findChangedTranscriptSegments(segments, segmentDrafts).length > 0,
     [segments, segmentDrafts],
   )
+  const hasNoteEdits = useMemo(() => hasNoteDraftChanges(latestNote, noteDraft), [latestNote, noteDraft])
   const hasEncryptedKey = Boolean(provider.apiKeyCiphertext && provider.apiKeySalt && provider.apiKeyIv)
 
   async function refreshLists() {
@@ -112,10 +121,13 @@ function App() {
       db.segments.where('lectureId').equals(lectureId).sortBy('index'),
       db.notes.where('lectureId').equals(lectureId).reverse().sortBy('createdAt'),
     ])
+    const orderedNotes = nextNotes.reverse()
     setChunks(nextChunks)
     setSegments(nextSegments)
-    setNotes(nextNotes.reverse())
+    setNotes(orderedNotes)
     setSegmentDrafts(Object.fromEntries(nextSegments.map((segment) => [segment.id, segment.text])))
+    const newestNote = orderedNotes[0]
+    setNoteDraft(newestNote ? noteToEditableDraft(newestNote) : undefined)
   }
 
   async function createLecture() {
@@ -211,6 +223,40 @@ function App() {
     await db.lectures.update(selectedLecture.id, { status: 'ready', updatedAt: now() })
     setManualTranscript('')
     setStatus('Manual transcript segment added.')
+    await refreshLists()
+    await refreshLectureData(selectedLecture.id)
+  }
+
+  function updateNoteDraft(field: keyof EditableNoteDraft, value: string) {
+    setNoteDraft((draft) => {
+      if (draft) return { ...draft, [field]: value }
+      if (!latestNote) return draft
+      return { ...noteToEditableDraft(latestNote), [field]: value }
+    })
+  }
+
+  async function saveNoteEdits() {
+    if (!selectedLecture || !latestNote || !noteDraft) return
+    if (!hasValidNoteDraft(noteDraft)) {
+      setStatus('Notes need a non-empty summary before saving.')
+      return
+    }
+
+    if (!hasNoteDraftChanges(latestNote, noteDraft)) {
+      setStatus('No note edits to save.')
+      return
+    }
+
+    const editedAt = now()
+    await db.transaction('rw', db.notes, db.lectures, async () => {
+      await db.notes.update(latestNote.id, {
+        ...editableDraftToNotePatch(noteDraft),
+        editedAt,
+      } satisfies Partial<LectureNote>)
+      await db.lectures.update(selectedLecture.id, { updatedAt: editedAt })
+    })
+
+    setStatus('Saved note edits.')
     await refreshLists()
     await refreshLectureData(selectedLecture.id)
   }
@@ -595,14 +641,40 @@ function App() {
                 <WandSparkles size={18} />
                 Generate Notes
               </button>
-              {latestNote ? (
+              {latestNote && noteDraft ? (
                 <article className="notes">
-                  <h3>Summary</h3>
-                  <p>{latestNote.summary}</p>
-                  <h3>Key Points</h3>
-                  <ul>{latestNote.keyPoints.map((item) => <li key={item}>{item}</li>)}</ul>
-                  <h3>Review Tasks</h3>
-                  <ul>{latestNote.reviewTasks.map((item) => <li key={item}>{item}</li>)}</ul>
+                  <label>
+                    Summary
+                    <textarea value={noteDraft.summary} onChange={(event) => updateNoteDraft('summary', event.target.value)} rows={4} />
+                  </label>
+                  <label>
+                    Outline
+                    <textarea value={noteDraft.outline} onChange={(event) => updateNoteDraft('outline', event.target.value)} rows={4} />
+                  </label>
+                  <label>
+                    Key Points
+                    <textarea value={noteDraft.keyPoints} onChange={(event) => updateNoteDraft('keyPoints', event.target.value)} rows={5} />
+                  </label>
+                  <label>
+                    Definitions
+                    <textarea value={noteDraft.definitions} onChange={(event) => updateNoteDraft('definitions', event.target.value)} rows={4} />
+                  </label>
+                  <label>
+                    Open Questions
+                    <textarea
+                      value={noteDraft.openQuestions}
+                      onChange={(event) => updateNoteDraft('openQuestions', event.target.value)}
+                      rows={4}
+                    />
+                  </label>
+                  <label>
+                    Review Tasks
+                    <textarea value={noteDraft.reviewTasks} onChange={(event) => updateNoteDraft('reviewTasks', event.target.value)} rows={4} />
+                  </label>
+                  <button disabled={!hasNoteEdits} onClick={saveNoteEdits}>
+                    <Save size={18} />
+                    Save Note Edits
+                  </button>
                 </article>
               ) : (
                 <p className="muted">No notes generated yet.</p>
