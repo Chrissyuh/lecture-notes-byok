@@ -211,6 +211,7 @@ label {
 
 .chunk-list,
 .job-list,
+.material-list,
 .lecture-list {
   display: grid;
   gap: 8px;
@@ -223,6 +224,34 @@ label {
   border-radius: 7px;
   color: #405049;
   font-size: 13px;
+}
+
+.material-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #dce4de;
+  border-radius: 8px;
+  background: #f2f5f2;
+  padding: 12px;
+}
+
+.material-card strong,
+.material-card span {
+  display: block;
+}
+
+.material-card strong {
+  overflow-wrap: anywhere;
+}
+
+.material-card span {
+  color: #66746d;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.material-card textarea {
+  min-height: 88px;
 }
 
 .file-picker {

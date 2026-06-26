@@ -36,6 +36,7 @@ import {
   type AppSettings,
   type Course,
   type Lecture,
+  type LectureMaterial,
   type LectureNote,
   type LocalJob,
   type ProviderProfile,
@@ -53,6 +54,7 @@ import {
 } from './noteEdits'
 import { generateNotesWithOpenAi, transcribeWithOpenAi, validateOpenAiKey } from './openaiProvider'
 import { createNotesJob, createTranscriptionJobs, nextRunAfter, summarizeJobs } from './queue'
+import { buildLectureMaterial, updateMaterialText } from './materials'
 import { findChangedTranscriptSegments, hasEmptyTranscriptDraft } from './transcript'
 
 type ActiveTab = 'capture' | 'notes' | 'library' | 'settings'
@@ -92,6 +94,7 @@ function App() {
   const [chunks, setChunks] = useState<AudioChunk[]>([])
   const [segments, setSegments] = useState<TranscriptSegment[]>([])
   const [notes, setNotes] = useState<LectureNote[]>([])
+  const [materials, setMaterials] = useState<LectureMaterial[]>([])
   const [jobs, setJobs] = useState<LocalJob[]>([])
   const [provider, setProvider] = useState<ProviderProfile>(DEFAULT_PROVIDER)
   const [sessionKey, setSessionKey] = useState('')
@@ -103,6 +106,8 @@ function App() {
   const [manualTranscript, setManualTranscript] = useState('')
   const [importingAudio, setImportingAudio] = useState(false)
   const [importingBackup, setImportingBackup] = useState(false)
+  const [importingMaterials, setImportingMaterials] = useState(false)
+  const [materialTextDrafts, setMaterialTextDrafts] = useState<Record<string, string>>({})
   const [processingQueue, setProcessingQueue] = useState(false)
   const [segmentDrafts, setSegmentDrafts] = useState<Record<string, string>>({})
   const [noteDraft, setNoteDraft] = useState<EditableNoteDraft>()
@@ -115,8 +120,10 @@ function App() {
     audioChunks: 0,
     transcriptSegments: 0,
     notes: 0,
+    materials: 0,
     queuedJobs: 0,
     audioBytes: 0,
+    materialBytes: 0,
   })
 
   useEffect(() => {
@@ -174,6 +181,16 @@ function App() {
   const studyCards = useMemo(() => studyCardsFromNote(latestNote), [latestNote])
   const activeStudyCard = studyCards[studyCardIndex]
   const queueSummary = useMemo(() => summarizeJobs(jobs), [jobs])
+  const segmentLabelById = useMemo(
+    () =>
+      Object.fromEntries(
+        segments.map((segment) => [
+          segment.id,
+          `Segment ${segment.index + 1} (${msLabel(segment.startMs)})`,
+        ]),
+      ),
+    [segments],
+  )
   const hasTranscriptEdits = useMemo(
     () => findChangedTranscriptSegments(segments, segmentDrafts).length > 0,
     [segments, segmentDrafts],
@@ -196,18 +213,21 @@ function App() {
   }
 
   async function refreshLectureData(lectureId: string) {
-    const [nextChunks, nextSegments, nextNotes, nextJobs] = await Promise.all([
+    const [nextChunks, nextSegments, nextNotes, nextMaterials, nextJobs] = await Promise.all([
       db.chunks.where('lectureId').equals(lectureId).sortBy('index'),
       db.segments.where('lectureId').equals(lectureId).sortBy('index'),
       db.notes.where('lectureId').equals(lectureId).reverse().sortBy('createdAt'),
+      db.materials.where('lectureId').equals(lectureId).sortBy('createdAt'),
       db.jobs.where('lectureId').equals(lectureId).sortBy('createdAt'),
     ])
     const orderedNotes = nextNotes.reverse()
     setChunks(nextChunks)
     setSegments(nextSegments)
     setNotes(orderedNotes)
+    setMaterials(nextMaterials)
     setJobs(nextJobs)
     setSegmentDrafts(Object.fromEntries(nextSegments.map((segment) => [segment.id, segment.text])))
+    setMaterialTextDrafts(Object.fromEntries(nextMaterials.map((material) => [material.id, material.searchableText ?? ''])))
     const newestNote = orderedNotes[0]
     setNoteDraft(newestNote ? noteToEditableDraft(newestNote) : undefined)
   }
@@ -426,6 +446,49 @@ function App() {
     } finally {
       setImportingBackup(false)
     }
+  }
+
+  async function importMaterialFiles(files: FileList | null) {
+    if (!selectedLecture || !files?.length) return
+
+    setImportingMaterials(true)
+    try {
+      const createdAt = now()
+      const nextMaterials = await Promise.all(
+        Array.from(files).map((file) => buildLectureMaterial(file, selectedLecture.id, segments, createdAt)),
+      )
+      await db.materials.bulkPut(nextMaterials)
+      await db.lectures.update(selectedLecture.id, { updatedAt: createdAt })
+      setStatus(`Attached ${nextMaterials.length} lecture material${nextMaterials.length === 1 ? '' : 's'}.`)
+      await refreshLists()
+      await refreshLectureData(selectedLecture.id)
+    } catch (error) {
+      setStatus(error instanceof Error ? `Material import failed: ${error.message}` : 'Material import failed.')
+    } finally {
+      setImportingMaterials(false)
+    }
+  }
+
+  async function saveMaterialText(material: LectureMaterial) {
+    if (!selectedLecture) return
+    const updatedAt = now()
+    const patch = updateMaterialText(material, materialTextDrafts[material.id] ?? '', segments)
+    await db.transaction('rw', db.materials, db.lectures, async () => {
+      await db.materials.update(material.id, patch)
+      await db.lectures.update(selectedLecture.id, { updatedAt })
+    })
+    setStatus(`Updated material links for ${material.name}.`)
+    await refreshLists()
+    await refreshLectureData(selectedLecture.id)
+  }
+
+  async function removeMaterial(materialId: string) {
+    if (!selectedLecture) return
+    await db.materials.delete(materialId)
+    await db.lectures.update(selectedLecture.id, { updatedAt: now() })
+    setStatus('Removed lecture material.')
+    await refreshLists()
+    await refreshLectureData(selectedLecture.id)
   }
 
   async function queueTranscriptionJobs() {
@@ -704,7 +767,26 @@ function App() {
     if (!selectedLecture) return
     downloadText(
       `${fileSafe(selectedLecture.title)}.json`,
-      JSON.stringify({ lecture: selectedLecture, segments, notes }, null, 2),
+      JSON.stringify(
+        {
+          lecture: selectedLecture,
+          segments,
+          notes,
+          materials: materials.map((material) => ({
+            id: material.id,
+            lectureId: material.lectureId,
+            name: material.name,
+            kind: material.kind,
+            mimeType: material.mimeType,
+            sizeBytes: material.sizeBytes,
+            searchableText: material.searchableText,
+            linkedSegmentIds: material.linkedSegmentIds,
+            createdAt: material.createdAt,
+          })),
+        },
+        null,
+        2,
+      ),
       'application/json',
     )
   }
@@ -728,8 +810,10 @@ function App() {
     setChunks([])
     setSegments([])
     setNotes([])
+    setMaterials([])
     setJobs([])
     setSegmentDrafts({})
+    setMaterialTextDrafts({})
     setNoteDraft(undefined)
     await refreshLists()
     setStatus('All local lecture data was deleted from this browser.')
@@ -774,6 +858,7 @@ function App() {
             <span>{courseLectures.length} lectures in course</span>
             <span>{segments.length} transcript segments</span>
             <span>{chunks.length} audio chunks</span>
+            <span>{materials.length} materials</span>
             <span>{queueSummary.queued + queueSummary.running + queueSummary.error} active jobs</span>
           </div>
         </header>
@@ -873,6 +958,64 @@ function App() {
                   }}
                 />
               </label>
+            </section>
+
+            <section className="panel wide">
+              <h2>Lecture Materials</h2>
+              <p className="muted">
+                Attach slides, PDFs, images, captions, or text notes. Text-bearing files are matched to transcript segments locally.
+              </p>
+              <label className="file-picker">
+                <Upload size={18} />
+                Choose materials
+                <input
+                  type="file"
+                  accept=".pdf,.ppt,.pptx,.key,.odp,.txt,.md,.markdown,.vtt,.srt,.csv,.tsv,image/*,application/pdf,text/*"
+                  multiple
+                  disabled={!selectedLecture || importingMaterials}
+                  onChange={(event) => {
+                    void importMaterialFiles(event.target.files)
+                    event.currentTarget.value = ''
+                  }}
+                />
+              </label>
+              <div className="material-list">
+                {materials.map((material) => (
+                  <article key={material.id} className="material-card">
+                    <div>
+                      <strong>{material.name}</strong>
+                      <span>
+                        {material.kind} - {bytesLabel(material.sizeBytes)} -{' '}
+                        {material.linkedSegmentIds.length
+                          ? material.linkedSegmentIds.map((id) => segmentLabelById[id] ?? id).join(', ')
+                          : 'no transcript links yet'}
+                      </span>
+                    </div>
+                    <label>
+                      Searchable text
+                      <textarea
+                        value={materialTextDrafts[material.id] ?? ''}
+                        placeholder="Paste slide titles, PDF text, or key terms to align this file with transcript segments."
+                        onChange={(event) =>
+                          setMaterialTextDrafts((drafts) => ({ ...drafts, [material.id]: event.target.value }))
+                        }
+                        rows={3}
+                      />
+                    </label>
+                    <div className="button-row">
+                      <button onClick={() => saveMaterialText(material)}>
+                        <Save size={18} />
+                        Save Links
+                      </button>
+                      <button onClick={() => removeMaterial(material.id)}>
+                        <Trash2 size={18} />
+                        Remove
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {materials.length === 0 && <p className="muted">No local materials attached to this lecture.</p>}
+              </div>
             </section>
 
             <section className="panel wide">
@@ -1196,12 +1339,20 @@ function App() {
                   Notes
                 </span>
                 <span>
+                  <strong>{localStats.materials}</strong>
+                  Materials
+                </span>
+                <span>
                   <strong>{localStats.queuedJobs}</strong>
                   Active jobs
                 </span>
                 <span>
                   <strong>{bytesLabel(localStats.audioBytes)}</strong>
                   Stored audio
+                </span>
+                <span>
+                  <strong>{bytesLabel(localStats.materialBytes)}</strong>
+                  Stored materials
                 </span>
               </div>
               <button disabled={localStats.lectures === 0} onClick={removeAllLectureData}>

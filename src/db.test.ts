@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db, deleteAllLectureData, deleteLectureCascade, ensureBootstrapData, getLocalDataStats } from './db'
-import type { AudioChunk, Lecture, LectureNote, LocalJob, TranscriptSegment } from './domain'
+import type { AudioChunk, Lecture, LectureMaterial, LectureNote, LocalJob, TranscriptSegment } from './domain'
 
 describe('local database', () => {
   beforeEach(async () => {
@@ -84,11 +84,23 @@ describe('local database', () => {
       createdAt,
       updatedAt: createdAt,
     }
+    const material: LectureMaterial = {
+      id: 'material-1',
+      lectureId: lecture.id,
+      name: 'slides.pdf',
+      kind: 'pdf',
+      mimeType: 'application/pdf',
+      blob: new Blob(['pdf']),
+      sizeBytes: 3,
+      linkedSegmentIds: [segment.id],
+      createdAt,
+    }
 
     await db.lectures.put(lecture)
     await db.chunks.put(chunk)
     await db.segments.put(segment)
     await db.notes.put(note)
+    await db.materials.put(material)
     await db.jobs.put(localJob)
 
     await deleteLectureCascade(lecture.id)
@@ -97,6 +109,7 @@ describe('local database', () => {
     await expect(db.chunks.count()).resolves.toBe(0)
     await expect(db.segments.count()).resolves.toBe(0)
     await expect(db.notes.count()).resolves.toBe(0)
+    await expect(db.materials.count()).resolves.toBe(0)
     await expect(db.jobs.count()).resolves.toBe(0)
   })
 
@@ -147,14 +160,27 @@ describe('local database', () => {
       updatedAt: createdAt,
       lastError: 'Network error',
     })
+    await db.materials.put({
+      id: 'material-1',
+      lectureId: lecture.id,
+      name: 'slides.pdf',
+      kind: 'pdf',
+      mimeType: 'application/pdf',
+      blob: new Blob(['pdf']),
+      sizeBytes: 3,
+      linkedSegmentIds: [],
+      createdAt,
+    })
 
     await expect(getLocalDataStats()).resolves.toMatchObject({
       lectures: 1,
       audioChunks: 1,
       transcriptSegments: 1,
       notes: 0,
+      materials: 1,
       queuedJobs: 1,
       audioBytes: 5,
+      materialBytes: 3,
     })
 
     await deleteAllLectureData()
@@ -164,8 +190,10 @@ describe('local database', () => {
       audioChunks: 0,
       transcriptSegments: 0,
       notes: 0,
+      materials: 0,
       queuedJobs: 0,
       audioBytes: 0,
+      materialBytes: 0,
     })
     await expect(db.providers.get('openai')).resolves.toMatchObject({ id: 'openai' })
   })

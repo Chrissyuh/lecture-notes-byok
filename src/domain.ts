@@ -3,6 +3,7 @@ export type ProviderId = 'openai'
 export type LectureStatus = 'draft' | 'recording' | 'processing' | 'ready' | 'error'
 export type LocalJobType = 'transcribe-chunk' | 'generate-notes'
 export type LocalJobStatus = 'queued' | 'running' | 'done' | 'error'
+export type LectureMaterialKind = 'pdf' | 'slides' | 'image' | 'text' | 'other'
 
 export interface Course {
   id: string
@@ -62,6 +63,19 @@ export interface LocalJob {
   createdAt: string
   updatedAt: string
   lastError?: string
+}
+
+export interface LectureMaterial {
+  id: string
+  lectureId: string
+  name: string
+  kind: LectureMaterialKind
+  mimeType: string
+  blob: Blob
+  sizeBytes: number
+  searchableText?: string
+  linkedSegmentIds: string[]
+  createdAt: string
 }
 
 export interface LectureNote {
