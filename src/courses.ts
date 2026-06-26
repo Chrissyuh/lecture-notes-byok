@@ -21,3 +21,11 @@ export function filterLecturesByCourse(lectures: Lecture[], courseId: string | u
   if (!courseId) return lectures
   return lectures.filter((lecture) => lecture.courseId === courseId)
 }
+
+export function cleanLectureTitle(title: string) {
+  return title.trim() || 'Untitled lecture'
+}
+
+export function canMoveLectureToCourse(courseId: string, courses: Course[]) {
+  return courses.some((course) => course.id === courseId)
+}

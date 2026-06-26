@@ -68,6 +68,14 @@ try {
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByRole('heading', { name: 'Browser Smoke Lecture' }).waitFor()
 
+  await page.getByRole('button', { name: 'Library' }).click()
+  const details = page.locator('.detail-editor')
+  await details.getByLabel('Title').fill('Browser Smoke Lecture Renamed')
+  await details.getByRole('button', { name: 'Save Details' }).click()
+  await page.getByText('Lecture details saved.').waitFor()
+  await page.getByRole('heading', { name: 'Browser Smoke Lecture Renamed' }).waitFor()
+
+  await page.getByRole('button', { name: 'Capture' }).click()
   await page
     .locator('section')
     .filter({ has: page.getByRole('heading', { name: 'Manual Transcript' }) })
@@ -96,7 +104,7 @@ try {
   assert(stream, 'download stream was not available')
   const exported = JSON.parse(await text(stream))
 
-  assert(exported.lecture.title === 'Browser Smoke Lecture', 'exported lecture title did not match')
+  assert(exported.lecture.title === 'Browser Smoke Lecture Renamed', 'exported lecture title did not match')
   assert(exported.segments?.[0]?.text.includes('Entropy connects heat'), 'exported transcript segment was missing')
   assert(exported.segments?.[0]?.speaker === 'Professor Rivera', 'exported speaker label was missing')
   assert(exported.materials?.[0]?.name === 'entropy-slides.txt', 'exported material metadata was missing')

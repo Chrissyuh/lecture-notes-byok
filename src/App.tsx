@@ -19,7 +19,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { buildImportedAudioChunks, chunkLimitLabel } from './audioChunks'
 import { prepareLectureBackupImport } from './backups'
-import { activeCourseId, createCourseDraft, filterLecturesByCourse } from './courses'
+import { activeCourseId, canMoveLectureToCourse, cleanLectureTitle, createCourseDraft, filterLecturesByCourse } from './courses'
 import { decryptSecret, encryptSecret } from './cryptoBox'
 import {
   db,
@@ -102,6 +102,9 @@ function App() {
   const [status, setStatus] = useState('Local workspace ready.')
   const [courseTitle, setCourseTitle] = useState('')
   const [lectureTitle, setLectureTitle] = useState('New lecture')
+  const [lectureEditTitle, setLectureEditTitle] = useState('')
+  const [lectureEditCourseId, setLectureEditCourseId] = useState('')
+  const [lectureEditConsent, setLectureEditConsent] = useState(false)
   const [consentConfirmed, setConsentConfirmed] = useState(false)
   const [manualTranscript, setManualTranscript] = useState('')
   const [importingAudio, setImportingAudio] = useState(false)
@@ -204,6 +207,18 @@ function App() {
     setShowStudyAnswer(false)
   }, [latestNote?.id])
 
+  useEffect(() => {
+    if (!selectedLecture) {
+      setLectureEditTitle('')
+      setLectureEditCourseId('')
+      setLectureEditConsent(false)
+      return
+    }
+    setLectureEditTitle(selectedLecture.title)
+    setLectureEditCourseId(selectedLecture.courseId)
+    setLectureEditConsent(selectedLecture.consentConfirmed)
+  }, [selectedLecture])
+
   async function refreshLists() {
     setCourses(await db.courses.orderBy('createdAt').toArray())
     setSettings(await db.settings.get('settings'))
@@ -243,7 +258,7 @@ function App() {
     const lecture: Lecture = {
       id: newId('lecture'),
       courseId: selectedCourseId,
-      title: lectureTitle.trim() || 'Untitled lecture',
+      title: cleanLectureTitle(lectureTitle),
       status: 'draft',
       consentConfirmed,
       createdAt,
@@ -275,6 +290,29 @@ function App() {
     await db.settings.update('settings', { activeCourseId: courseId, updatedAt: now() })
     setSelectedLectureId(undefined)
     await refreshLists()
+  }
+
+  async function saveLectureDetails() {
+    if (!selectedLecture) return
+    if (!canMoveLectureToCourse(lectureEditCourseId, courses)) {
+      setStatus('Choose a valid course before saving lecture details.')
+      return
+    }
+
+    const updatedAt = now()
+    await db.transaction('rw', db.lectures, db.settings, async () => {
+      await db.lectures.update(selectedLecture.id, {
+        title: cleanLectureTitle(lectureEditTitle),
+        courseId: lectureEditCourseId,
+        consentConfirmed: lectureEditConsent,
+        updatedAt,
+      })
+      await db.settings.update('settings', { activeCourseId: lectureEditCourseId, updatedAt })
+    })
+    setSelectedLectureId(selectedLecture.id)
+    await refreshLists()
+    await refreshLectureData(selectedLecture.id)
+    setStatus('Lecture details saved.')
   }
 
   async function startRecording() {
@@ -1221,6 +1259,37 @@ function App() {
                 ))}
               </select>
             </label>
+            {selectedLecture && (
+              <div className="detail-editor">
+                <h3>Lecture Details</h3>
+                <label>
+                  Title
+                  <input value={lectureEditTitle} onChange={(event) => setLectureEditTitle(event.target.value)} />
+                </label>
+                <label>
+                  Course
+                  <select value={lectureEditCourseId} onChange={(event) => setLectureEditCourseId(event.target.value)}>
+                    {courses.map((course) => (
+                      <option key={course.id} value={course.id}>
+                        {course.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="check-row">
+                  <input
+                    type="checkbox"
+                    checked={lectureEditConsent}
+                    onChange={(event) => setLectureEditConsent(event.target.checked)}
+                  />
+                  Recording permission was confirmed for this lecture.
+                </label>
+                <button onClick={saveLectureDetails}>
+                  <Save size={18} />
+                  Save Details
+                </button>
+              </div>
+            )}
             <label className="search-box">
               <Search size={18} />
               <input

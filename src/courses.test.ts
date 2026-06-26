@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activeCourseId, createCourseDraft, filterLecturesByCourse } from './courses'
+import { activeCourseId, canMoveLectureToCourse, cleanLectureTitle, createCourseDraft, filterLecturesByCourse } from './courses'
 import type { Course, Lecture } from './domain'
 
 const courses: Course[] = [
@@ -47,5 +47,12 @@ describe('course helpers', () => {
 
   it('filters lectures by active course', () => {
     expect(filterLecturesByCourse(lectures, 'course-a').map((lecture) => lecture.id)).toEqual(['lecture-a'])
+  })
+
+  it('cleans lecture titles and validates target courses for moves', () => {
+    expect(cleanLectureTitle('  Week 4 Review  ')).toBe('Week 4 Review')
+    expect(cleanLectureTitle('   ')).toBe('Untitled lecture')
+    expect(canMoveLectureToCourse('course-b', courses)).toBe(true)
+    expect(canMoveLectureToCourse('missing', courses)).toBe(false)
   })
 })
