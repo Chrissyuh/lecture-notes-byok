@@ -305,6 +305,25 @@ label {
   margin-top: 0;
 }
 
+.study-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #dce4de;
+  border-radius: 8px;
+  background: #f2f5f2;
+  padding: 16px;
+}
+
+.study-card span {
+  color: #66746d;
+  font-size: 13px;
+}
+
+.study-card strong {
+  color: #18201f;
+  font-size: 20px;
+}
+
 .lecture {
   min-height: 58px;
   justify-content: space-between;

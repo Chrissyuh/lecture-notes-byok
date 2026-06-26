@@ -41,6 +41,7 @@ import {
 } from './domain'
 import { searchLibrary, type LibrarySearchResult } from './librarySearch'
 import { downloadText, flashcardsToCsv, noteToMarkdown } from './exporters'
+import { studyCardsFromNote, wrappedCardIndex } from './flashcards'
 import {
   editableDraftToNotePatch,
   hasNoteDraftChanges,
@@ -100,6 +101,8 @@ function App() {
   const [importingBackup, setImportingBackup] = useState(false)
   const [segmentDrafts, setSegmentDrafts] = useState<Record<string, string>>({})
   const [noteDraft, setNoteDraft] = useState<EditableNoteDraft>()
+  const [studyCardIndex, setStudyCardIndex] = useState(0)
+  const [showStudyAnswer, setShowStudyAnswer] = useState(false)
   const [libraryQuery, setLibraryQuery] = useState('')
   const [libraryResults, setLibraryResults] = useState<LibrarySearchResult[]>([])
   const [localStats, setLocalStats] = useState<LocalDataStats>({
@@ -162,12 +165,19 @@ function App() {
 
   const selectedLecture = lectures.find((lecture) => lecture.id === selectedLectureId)
   const latestNote = notes[0]
+  const studyCards = useMemo(() => studyCardsFromNote(latestNote), [latestNote])
+  const activeStudyCard = studyCards[studyCardIndex]
   const hasTranscriptEdits = useMemo(
     () => findChangedTranscriptSegments(segments, segmentDrafts).length > 0,
     [segments, segmentDrafts],
   )
   const hasNoteEdits = useMemo(() => hasNoteDraftChanges(latestNote, noteDraft), [latestNote, noteDraft])
   const hasEncryptedKey = Boolean(provider.apiKeyCiphertext && provider.apiKeySalt && provider.apiKeyIv)
+
+  useEffect(() => {
+    setStudyCardIndex(0)
+    setShowStudyAnswer(false)
+  }, [latestNote?.id])
 
   async function refreshLists() {
     setCourses(await db.courses.orderBy('createdAt').toArray())
@@ -348,6 +358,11 @@ function App() {
     setStatus('Saved note edits.')
     await refreshLists()
     await refreshLectureData(selectedLecture.id)
+  }
+
+  function moveStudyCard(delta: number) {
+    setStudyCardIndex((index) => wrappedCardIndex(index, delta, studyCards.length))
+    setShowStudyAnswer(false)
   }
 
   async function importAudioFiles(files: FileList | null) {
@@ -829,6 +844,28 @@ function App() {
                 <p className="muted">No notes generated yet.</p>
               )}
             </section>
+            <section className="panel wide">
+              <h2>Flashcard Review</h2>
+              {activeStudyCard ? (
+                <div className="study-card">
+                  <span>
+                    Card {studyCardIndex + 1} of {studyCards.length}
+                  </span>
+                  <strong>{activeStudyCard.front}</strong>
+                  {showStudyAnswer && <p>{activeStudyCard.back}</p>}
+                  <div className="button-row">
+                    <button onClick={() => moveStudyCard(-1)}>Previous</button>
+                    <button className="primary" onClick={() => setShowStudyAnswer((value) => !value)}>
+                      {showStudyAnswer ? 'Hide Answer' : 'Show Answer'}
+                    </button>
+                    <button onClick={() => moveStudyCard(1)}>Next</button>
+                  </div>
+                </div>
+              ) : (
+                <p className="muted">No flashcards in the latest generated note.</p>
+              )}
+            </section>
+
             <section className="panel wide">
               <h2>Export</h2>
               <div className="button-row">
