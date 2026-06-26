@@ -16,6 +16,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { buildImportedAudioChunks, chunkLimitLabel } from './audioChunks'
+import { prepareLectureBackupImport } from './backups'
 import { decryptSecret, encryptSecret } from './cryptoBox'
 import { db, deleteLectureCascade, ensureBootstrapData } from './db'
 import {
@@ -75,6 +76,7 @@ function App() {
   const [consentConfirmed, setConsentConfirmed] = useState(false)
   const [manualTranscript, setManualTranscript] = useState('')
   const [importingAudio, setImportingAudio] = useState(false)
+  const [importingBackup, setImportingBackup] = useState(false)
   const [segmentDrafts, setSegmentDrafts] = useState<Record<string, string>>({})
   const [noteDraft, setNoteDraft] = useState<EditableNoteDraft>()
 
@@ -290,6 +292,28 @@ function App() {
       setStatus(error instanceof Error ? error.message : 'Audio import failed.')
     } finally {
       setImportingAudio(false)
+    }
+  }
+
+  async function importBackupFile(file: File | undefined) {
+    if (!file) return
+
+    setImportingBackup(true)
+    try {
+      const prepared = prepareLectureBackupImport(JSON.parse(await file.text()))
+      await db.transaction('rw', db.lectures, db.segments, db.notes, async () => {
+        await db.lectures.put(prepared.lecture)
+        await db.segments.bulkPut(prepared.segments)
+        await db.notes.bulkPut(prepared.notes)
+      })
+      setSelectedLectureId(prepared.lecture.id)
+      setStatus(`Imported backup: ${prepared.lecture.title}.`)
+      await refreshLists()
+      await refreshLectureData(prepared.lecture.id)
+    } catch (error) {
+      setStatus(error instanceof Error ? `Backup import failed: ${error.message}` : 'Backup import failed.')
+    } finally {
+      setImportingBackup(false)
     }
   }
 
@@ -703,6 +727,20 @@ function App() {
         {tab === 'library' && (
           <section className="panel">
             <h2>Lecture Library</h2>
+            <p className="muted">Import a JSON backup created by this app to restore transcript segments and notes on this device.</p>
+            <label className="file-picker">
+              <Upload size={18} />
+              Import JSON backup
+              <input
+                type="file"
+                accept="application/json,.json"
+                disabled={importingBackup}
+                onChange={(event) => {
+                  void importBackupFile(event.target.files?.[0])
+                  event.currentTarget.value = ''
+                }}
+              />
+            </label>
             <div className="lecture-list">
               {lectures.map((lecture) => (
                 <button
