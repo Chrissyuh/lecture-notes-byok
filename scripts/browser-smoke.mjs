@@ -85,6 +85,9 @@ try {
 
   await page.getByRole('button', { name: 'Notes' }).click()
   await page.getByText('Entropy connects heat, disorder, and reversible lecture examples.').waitFor()
+  await page.getByPlaceholder('Speaker label').fill('Professor Rivera')
+  await page.getByRole('button', { name: 'Save Transcript Edits' }).click()
+  await page.getByText('Saved 1 transcript edit.').waitFor()
 
   const downloadPromise = page.waitForEvent('download')
   await page.getByRole('button', { name: 'JSON Backup' }).click()
@@ -95,6 +98,7 @@ try {
 
   assert(exported.lecture.title === 'Browser Smoke Lecture', 'exported lecture title did not match')
   assert(exported.segments?.[0]?.text.includes('Entropy connects heat'), 'exported transcript segment was missing')
+  assert(exported.segments?.[0]?.speaker === 'Professor Rivera', 'exported speaker label was missing')
   assert(exported.materials?.[0]?.name === 'entropy-slides.txt', 'exported material metadata was missing')
   assert(exported.materials?.[0]?.linkedSegmentIds?.length === 1, 'exported material link was missing')
 } finally {

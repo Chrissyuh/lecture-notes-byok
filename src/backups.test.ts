@@ -16,6 +16,7 @@ describe('lecture backup import', () => {
             index: 0,
             startMs: 0,
             endMs: 60_000,
+            speaker: 'Instructor',
             text: 'Cells have membranes.',
             uncertain: false,
           },
@@ -43,6 +44,7 @@ describe('lecture backup import', () => {
     expect(prepared.lecture.title).toBe('Biology 101 (imported)')
     expect(prepared.segments).toHaveLength(1)
     expect(prepared.segments[0].lectureId).toBe(prepared.lecture.id)
+    expect(prepared.segments[0].speaker).toBe('Instructor')
     expect(prepared.notes[0].lectureId).toBe(prepared.lecture.id)
     expect(prepared.notes[0].citations[0].segmentIds[0]).toBe(prepared.segments[0].id)
   })

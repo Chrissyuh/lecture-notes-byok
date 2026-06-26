@@ -110,6 +110,7 @@ function App() {
   const [materialTextDrafts, setMaterialTextDrafts] = useState<Record<string, string>>({})
   const [processingQueue, setProcessingQueue] = useState(false)
   const [segmentDrafts, setSegmentDrafts] = useState<Record<string, string>>({})
+  const [speakerDrafts, setSpeakerDrafts] = useState<Record<string, string>>({})
   const [noteDraft, setNoteDraft] = useState<EditableNoteDraft>()
   const [studyCardIndex, setStudyCardIndex] = useState(0)
   const [showStudyAnswer, setShowStudyAnswer] = useState(false)
@@ -192,8 +193,8 @@ function App() {
     [segments],
   )
   const hasTranscriptEdits = useMemo(
-    () => findChangedTranscriptSegments(segments, segmentDrafts).length > 0,
-    [segments, segmentDrafts],
+    () => findChangedTranscriptSegments(segments, segmentDrafts, speakerDrafts).length > 0,
+    [segments, segmentDrafts, speakerDrafts],
   )
   const hasNoteEdits = useMemo(() => hasNoteDraftChanges(latestNote, noteDraft), [latestNote, noteDraft])
   const hasEncryptedKey = Boolean(provider.apiKeyCiphertext && provider.apiKeySalt && provider.apiKeyIv)
@@ -227,6 +228,7 @@ function App() {
     setMaterials(nextMaterials)
     setJobs(nextJobs)
     setSegmentDrafts(Object.fromEntries(nextSegments.map((segment) => [segment.id, segment.text])))
+    setSpeakerDrafts(Object.fromEntries(nextSegments.map((segment) => [segment.id, segment.speaker ?? ''])))
     setMaterialTextDrafts(Object.fromEntries(nextMaterials.map((material) => [material.id, material.searchableText ?? ''])))
     const newestNote = orderedNotes[0]
     setNoteDraft(newestNote ? noteToEditableDraft(newestNote) : undefined)
@@ -343,6 +345,7 @@ function App() {
       index: existing,
       startMs: existing * 60_000,
       endMs: (existing + 1) * 60_000,
+      speaker: existing === 0 ? 'Instructor' : undefined,
       text: manualTranscript.trim(),
       uncertain: false,
       createdAt: now(),
@@ -574,6 +577,7 @@ function App() {
             index: chunk.index,
             startMs: chunk.index * 60_000,
             endMs: (chunk.index + 1) * 60_000,
+            speaker: chunk.index === 0 ? 'Instructor' : undefined,
             text,
             uncertain: text.length === 0,
             createdAt: completedAt,
@@ -675,7 +679,7 @@ function App() {
       return
     }
 
-    const changed = findChangedTranscriptSegments(segments, segmentDrafts)
+    const changed = findChangedTranscriptSegments(segments, segmentDrafts, speakerDrafts)
     if (changed.length === 0) {
       setStatus('No transcript edits to save.')
       return
@@ -683,8 +687,8 @@ function App() {
 
     const editedAt = now()
     await db.transaction('rw', db.segments, db.lectures, async () => {
-      for (const { segment, text } of changed) {
-        await db.segments.update(segment.id, { text, uncertain: false, editedAt })
+      for (const { segment, text, speaker } of changed) {
+        await db.segments.update(segment.id, { text, speaker, uncertain: false, editedAt })
       }
       await db.lectures.update(selectedLecture.id, { updatedAt: editedAt })
     })
@@ -816,6 +820,7 @@ function App() {
     setMaterials([])
     setJobs([])
     setSegmentDrafts({})
+    setSpeakerDrafts({})
     setMaterialTextDrafts({})
     setNoteDraft(undefined)
     await refreshLists()
@@ -1088,8 +1093,16 @@ function App() {
                       <label key={segment.id} className="segment-card">
                         <span>
                           Segment {segment.index + 1} - {msLabel(segment.startMs)}
+                          {segment.speaker ? ` - ${segment.speaker}` : ''}
                           {segment.editedAt ? ' - edited' : ''}
                         </span>
+                        <input
+                          value={speakerDrafts[segment.id] ?? segment.speaker ?? ''}
+                          placeholder="Speaker label"
+                          onChange={(event) =>
+                            setSpeakerDrafts((drafts) => ({ ...drafts, [segment.id]: event.target.value }))
+                          }
+                        />
                         <textarea
                           value={segmentDrafts[segment.id] ?? segment.text}
                           onChange={(event) =>

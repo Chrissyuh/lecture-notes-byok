@@ -2,7 +2,10 @@ import type { Lecture, LectureNote, TranscriptSegment } from './domain'
 
 export function noteToMarkdown(lecture: Lecture, segments: TranscriptSegment[], note?: LectureNote) {
   const transcript = segments
-    .map((segment) => `- ${Math.round(segment.startMs / 1000)}s [${segment.id}]: ${segment.text}`)
+    .map((segment) => {
+      const speaker = segment.speaker ? ` ${segment.speaker}` : ''
+      return `- ${Math.round(segment.startMs / 1000)}s [${segment.id}]${speaker}: ${segment.text}`
+    })
     .join('\n')
 
   if (!note) {

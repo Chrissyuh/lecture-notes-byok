@@ -19,6 +19,7 @@ const segments: TranscriptSegment[] = [
     index: 0,
     startMs: 0,
     endMs: 60_000,
+    speaker: 'Instructor',
     text: 'Sampling turns a continuous signal into discrete observations.',
     uncertain: false,
     createdAt: lecture.createdAt,
@@ -47,7 +48,7 @@ describe('exporters', () => {
     expect(markdown).toContain('# Signal Processing')
     expect(markdown).toContain('## Summary')
     expect(markdown).toContain('Sampling was introduced.')
-    expect(markdown).toContain('- 0s [seg-1]: Sampling turns a continuous signal')
+    expect(markdown).toContain('- 0s [seg-1] Instructor: Sampling turns a continuous signal')
   })
 
   it('exports flashcards as escaped CSV', () => {

@@ -9,6 +9,7 @@ const segments: TranscriptSegment[] = [
     index: 0,
     startMs: 0,
     endMs: 60_000,
+    speaker: 'Instructor',
     text: 'Entropy measures energy dispersal.',
     uncertain: false,
     createdAt: '2026-06-26T00:00:00.000Z',
@@ -40,6 +41,9 @@ describe('OpenAI-compatible provider helpers', () => {
         },
       },
     })
+    if (request.path !== '/responses') throw new Error('expected Responses API request')
+    const body = request.body as { input: Array<{ content: string }> }
+    expect(body.input[1].content).toContain('0s Instructor: Entropy measures energy dispersal.')
   })
 
   it('builds chat-completions note requests for compatible endpoints', () => {

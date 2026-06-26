@@ -46,6 +46,7 @@ export interface TranscriptSegment {
   index: number
   startMs: number
   endMs: number
+  speaker?: string
   text: string
   uncertain: boolean
   createdAt: string

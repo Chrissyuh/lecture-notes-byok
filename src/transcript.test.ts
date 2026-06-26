@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TranscriptSegment } from './domain'
-import { cleanTranscriptEdit, findChangedTranscriptSegments, hasEmptyTranscriptDraft } from './transcript'
+import { cleanSpeakerLabel, cleanTranscriptEdit, findChangedTranscriptSegments, hasEmptyTranscriptDraft } from './transcript'
 
 const segment: TranscriptSegment = {
   id: 'seg-1',
@@ -18,11 +18,27 @@ describe('transcript editing helpers', () => {
     expect(cleanTranscriptEdit('  first line  \r\n\r\n\r\n second line  ')).toBe('first line\n\nsecond line')
   })
 
+  it('normalizes speaker labels', () => {
+    expect(cleanSpeakerLabel('  Professor   Rivera  ')).toBe('Professor Rivera')
+  })
+
   it('finds changed non-empty segment drafts', () => {
     const changed = findChangedTranscriptSegments([segment], { 'seg-1': 'Corrected text' })
 
     expect(changed).toHaveLength(1)
     expect(changed[0].text).toBe('Corrected text')
+  })
+
+  it('finds changed speaker drafts independently from text edits', () => {
+    const changed = findChangedTranscriptSegments([segment], { 'seg-1': 'Original text' }, { 'seg-1': 'Speaker 1' })
+
+    expect(changed).toEqual([
+      {
+        segment,
+        text: 'Original text',
+        speaker: 'Speaker 1',
+      },
+    ])
   })
 
   it('flags empty drafts before saving transcript edits', () => {

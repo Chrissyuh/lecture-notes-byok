@@ -62,7 +62,12 @@ function lectureNotesSchema() {
 }
 
 function transcriptPrompt(segments: TranscriptSegment[]) {
-  return segments.map((segment) => `[${segment.id}] ${Math.round(segment.startMs / 1000)}s: ${segment.text}`).join('\n')
+  return segments
+    .map((segment) => {
+      const speaker = segment.speaker ? ` ${segment.speaker}` : ''
+      return `[${segment.id}] ${Math.round(segment.startMs / 1000)}s${speaker}: ${segment.text}`
+    })
+    .join('\n')
 }
 
 function parseJsonText(value: unknown) {
