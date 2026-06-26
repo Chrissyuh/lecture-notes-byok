@@ -4,7 +4,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: '/lecture-notes-byok/',
+  base: process.env.VERCEL ? '/' : '/lecture-notes-byok/',
   plugins: [
     react(),
     VitePWA({
