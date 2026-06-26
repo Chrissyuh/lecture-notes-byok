@@ -7,6 +7,7 @@ Public-source, local-first, bring-your-own-key AI lecture note-taking.
 - Browser microphone capture with local audio chunks stored in IndexedDB.
 - Audio/video import for downloaded class recordings, split into provider-sized local chunks.
 - Manual transcript entry for testing and imported captions.
+- Editable transcript segments before note generation and export.
 - OpenAI BYOK settings with session-only keys by default.
 - Optional passphrase-encrypted key storage using Web Crypto.
 - OpenAI transcription and structured note generation adapters.

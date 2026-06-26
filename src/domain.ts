@@ -45,6 +45,7 @@ export interface TranscriptSegment {
   text: string
   uncertain: boolean
   createdAt: string
+  editedAt?: string
 }
 
 export interface LectureNote {

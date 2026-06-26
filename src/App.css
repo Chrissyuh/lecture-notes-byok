@@ -221,6 +221,30 @@ label {
   color: #24322c;
 }
 
+.segment-editor {
+  display: grid;
+  gap: 10px;
+  max-height: 58vh;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.segment-card {
+  background: #f2f5f2;
+  border: 1px solid #dce4de;
+  border-radius: 7px;
+  padding: 10px;
+}
+
+.segment-card span {
+  color: #405049;
+  font-size: 13px;
+}
+
+.segment-card textarea {
+  min-height: 104px;
+}
+
 .notes {
   display: grid;
   gap: 10px;

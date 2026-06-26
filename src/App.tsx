@@ -29,6 +29,7 @@ import {
 } from './domain'
 import { downloadText, flashcardsToCsv, noteToMarkdown } from './exporters'
 import { generateNotesWithOpenAi, transcribeWithOpenAi, validateOpenAiKey } from './openaiProvider'
+import { findChangedTranscriptSegments, hasEmptyTranscriptDraft } from './transcript'
 
 type ActiveTab = 'capture' | 'notes' | 'library' | 'settings'
 
@@ -67,6 +68,7 @@ function App() {
   const [consentConfirmed, setConsentConfirmed] = useState(false)
   const [manualTranscript, setManualTranscript] = useState('')
   const [importingAudio, setImportingAudio] = useState(false)
+  const [segmentDrafts, setSegmentDrafts] = useState<Record<string, string>>({})
 
   useEffect(() => {
     void ensureBootstrapData().then(() => setReady(true))
@@ -92,7 +94,10 @@ function App() {
 
   const selectedLecture = lectures.find((lecture) => lecture.id === selectedLectureId)
   const latestNote = notes[0]
-  const transcriptText = useMemo(() => segments.map((segment) => segment.text).join('\n\n'), [segments])
+  const hasTranscriptEdits = useMemo(
+    () => findChangedTranscriptSegments(segments, segmentDrafts).length > 0,
+    [segments, segmentDrafts],
+  )
   const hasEncryptedKey = Boolean(provider.apiKeyCiphertext && provider.apiKeySalt && provider.apiKeyIv)
 
   async function refreshLists() {
@@ -110,6 +115,7 @@ function App() {
     setChunks(nextChunks)
     setSegments(nextSegments)
     setNotes(nextNotes.reverse())
+    setSegmentDrafts(Object.fromEntries(nextSegments.map((segment) => [segment.id, segment.text])))
   }
 
   async function createLecture() {
@@ -302,6 +308,32 @@ function App() {
     await db.notes.put(note)
     await db.lectures.update(selectedLecture.id, { status: 'ready', updatedAt: now() })
     setStatus('Notes generated.')
+    await refreshLists()
+    await refreshLectureData(selectedLecture.id)
+  }
+
+  async function saveTranscriptEdits() {
+    if (!selectedLecture) return
+    if (hasEmptyTranscriptDraft(segments, segmentDrafts)) {
+      setStatus('Transcript segments cannot be saved empty.')
+      return
+    }
+
+    const changed = findChangedTranscriptSegments(segments, segmentDrafts)
+    if (changed.length === 0) {
+      setStatus('No transcript edits to save.')
+      return
+    }
+
+    const editedAt = now()
+    await db.transaction('rw', db.segments, db.lectures, async () => {
+      for (const { segment, text } of changed) {
+        await db.segments.update(segment.id, { text, uncertain: false, editedAt })
+      }
+      await db.lectures.update(selectedLecture.id, { updatedAt: editedAt })
+    })
+
+    setStatus(`Saved ${changed.length} transcript edit${changed.length === 1 ? '' : 's'}.`)
     await refreshLists()
     await refreshLectureData(selectedLecture.id)
   }
@@ -529,7 +561,33 @@ function App() {
           <div className="grid two">
             <section className="panel">
               <h2>Transcript</h2>
-              <pre className="transcript">{transcriptText || 'No transcript yet.'}</pre>
+              {segments.length === 0 ? (
+                <p className="muted">No transcript yet.</p>
+              ) : (
+                <>
+                  <div className="segment-editor">
+                    {segments.map((segment) => (
+                      <label key={segment.id} className="segment-card">
+                        <span>
+                          Segment {segment.index + 1} - {msLabel(segment.startMs)}
+                          {segment.editedAt ? ' - edited' : ''}
+                        </span>
+                        <textarea
+                          value={segmentDrafts[segment.id] ?? segment.text}
+                          onChange={(event) =>
+                            setSegmentDrafts((drafts) => ({ ...drafts, [segment.id]: event.target.value }))
+                          }
+                          rows={4}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <button disabled={!hasTranscriptEdits} onClick={saveTranscriptEdits}>
+                    <Save size={18} />
+                    Save Transcript Edits
+                  </button>
+                </>
+              )}
             </section>
             <section className="panel">
               <h2>Generated Notes</h2>
