@@ -123,6 +123,17 @@ try {
   await page.getByRole('button', { name: 'Save Transcript Edits' }).click()
   await page.getByText('Saved 1 transcript edit.').waitFor()
 
+  step('exporting Markdown')
+  const markdownDownloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Markdown' }).click()
+  const markdownDownload = await markdownDownloadPromise
+  const markdownStream = await markdownDownload.createReadStream()
+  assert(markdownStream, 'markdown download stream was not available')
+  const markdown = await text(markdownStream)
+  assert(markdown.includes('## Material Context'), 'markdown material context was missing')
+  assert(markdown.includes('entropy-slides.txt'), 'markdown material name was missing')
+  assert(markdown.includes('Linked transcript: Segment 1 (0s)'), 'markdown material transcript link was missing')
+
   step('exporting JSON')
   const downloadPromise = page.waitForEvent('download')
   await page.getByRole('button', { name: 'JSON Backup' }).click()

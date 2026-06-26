@@ -22,7 +22,7 @@ Public-source, local-first, bring-your-own-key AI lecture note-taking.
 - OpenAI-compatible BYOK settings with configurable `/v1` base URL and session-only keys by default.
 - Optional passphrase-encrypted key storage using Web Crypto.
 - OpenAI audio transcription plus Responses API and chat-completions JSON note generation adapters.
-- Markdown, JSON backup, and Anki CSV export.
+- Markdown export with transcript/material context, JSON backup, and Anki CSV export.
 - Installable PWA build through `vite-plugin-pwa`.
 - Browser smoke coverage for lecture creation, transcript storage, material linking, and JSON export.
 

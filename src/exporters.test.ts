@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Lecture, LectureNote, TranscriptSegment } from './domain'
+import type { Lecture, LectureMaterial, LectureNote, TranscriptSegment } from './domain'
 import { flashcardsToCsv, noteToMarkdown } from './exporters'
 
 const lecture: Lecture = {
@@ -41,14 +41,41 @@ const note: LectureNote = {
   createdAt: lecture.createdAt,
 }
 
+const materials: LectureMaterial[] = [
+  {
+    id: 'material-1',
+    lectureId: lecture.id,
+    name: 'sampling-slides.txt',
+    kind: 'text',
+    mimeType: 'text/plain',
+    blob: new Blob(['sampling theorem slide']),
+    sizeBytes: 22,
+    searchableText: 'Sampling theorem slide',
+    linkedSegmentIds: ['seg-1'],
+    createdAt: lecture.createdAt,
+  },
+]
+
 describe('exporters', () => {
   it('exports notes and timestamped transcript to markdown', () => {
-    const markdown = noteToMarkdown(lecture, segments, note)
+    const markdown = noteToMarkdown(lecture, segments, note, materials)
 
     expect(markdown).toContain('# Signal Processing')
     expect(markdown).toContain('## Summary')
     expect(markdown).toContain('Sampling was introduced.')
+    expect(markdown).toContain('## Material Context')
+    expect(markdown).toContain('sampling-slides.txt (text, text/plain, 22 bytes)')
+    expect(markdown).toContain('Linked transcript: Segment 1 (0s)')
+    expect(markdown).toContain('Searchable text: Sampling theorem slide')
     expect(markdown).toContain('- 0s [seg-1] Instructor: Sampling turns a continuous signal')
+  })
+
+  it('exports material context even before notes exist', () => {
+    const markdown = noteToMarkdown(lecture, segments, undefined, materials)
+
+    expect(markdown).toContain('# Signal Processing')
+    expect(markdown).toContain('## Material Context')
+    expect(markdown).toContain('## Transcript')
   })
 
   it('exports flashcards as escaped CSV', () => {

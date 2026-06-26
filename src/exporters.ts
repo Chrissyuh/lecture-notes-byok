@@ -1,6 +1,32 @@
-import type { Lecture, LectureNote, TranscriptSegment } from './domain'
+import type { Lecture, LectureMaterial, LectureNote, TranscriptSegment } from './domain'
 
-export function noteToMarkdown(lecture: Lecture, segments: TranscriptSegment[], note?: LectureNote) {
+function materialLinks(material: LectureMaterial, segmentsById: Map<string, TranscriptSegment>) {
+  return material.linkedSegmentIds
+    .map((id) => {
+      const segment = segmentsById.get(id)
+      return segment ? `Segment ${segment.index + 1} (${Math.round(segment.startMs / 1000)}s)` : id
+    })
+    .join(', ')
+}
+
+function materialContextToMarkdown(materials: LectureMaterial[], segments: TranscriptSegment[]) {
+  if (materials.length === 0) return ''
+
+  const segmentsById = new Map(segments.map((segment) => [segment.id, segment]))
+  const body = materials
+    .map((material) => {
+      const linked = materialLinks(material, segmentsById)
+      const searchableText = material.searchableText ? `\n  Searchable text: ${material.searchableText}` : ''
+      return `- ${material.name} (${material.kind}, ${material.mimeType}, ${material.sizeBytes} bytes)${
+        linked ? `\n  Linked transcript: ${linked}` : ''
+      }${searchableText}`
+    })
+    .join('\n')
+
+  return `\n## Material Context\n\n${body}\n`
+}
+
+export function noteToMarkdown(lecture: Lecture, segments: TranscriptSegment[], note?: LectureNote, materials: LectureMaterial[] = []) {
   const transcript = segments
     .map((segment) => {
       const speaker = segment.speaker ? ` ${segment.speaker}` : ''
@@ -9,7 +35,12 @@ export function noteToMarkdown(lecture: Lecture, segments: TranscriptSegment[], 
     .join('\n')
 
   if (!note) {
-    return `# ${lecture.title}\n\n## Transcript\n\n${transcript}\n`
+    return `# ${lecture.title}
+${materialContextToMarkdown(materials, segments)}
+## Transcript
+
+${transcript}
+`
   }
 
   const list = (title: string, values: string[]) =>
@@ -32,6 +63,7 @@ ${list('Definitions', note.definitions)}
 ${list('Open Questions', note.openQuestions)}
 ${list('Review Tasks', note.reviewTasks)}
 ${flashcards}
+${materialContextToMarkdown(materials, segments)}
 ## Transcript
 
 ${transcript}

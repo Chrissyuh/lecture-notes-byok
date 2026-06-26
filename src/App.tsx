@@ -852,7 +852,7 @@ function App() {
 
   function exportMarkdown() {
     if (!selectedLecture) return
-    downloadText(`${fileSafe(selectedLecture.title)}.md`, noteToMarkdown(selectedLecture, segments, latestNote))
+    downloadText(`${fileSafe(selectedLecture.title)}.md`, noteToMarkdown(selectedLecture, segments, latestNote, materials))
   }
 
   function exportJson() {
