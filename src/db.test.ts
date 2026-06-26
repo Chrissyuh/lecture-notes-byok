@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db, deleteAllLectureData, deleteLectureCascade, ensureBootstrapData, getLocalDataStats } from './db'
-import type { AudioChunk, Lecture, LectureMaterial, LectureNote, LocalJob, TranscriptSegment } from './domain'
+import type { AudioChunk, Lecture, LectureMaterial, LectureNote, LocalJob, ProviderProfile, TranscriptSegment } from './domain'
 
 describe('local database', () => {
   beforeEach(async () => {
@@ -19,10 +19,32 @@ describe('local database', () => {
     })
     await expect(db.providers.get('openai')).resolves.toMatchObject({
       id: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
       transcribeModel: 'gpt-4o-mini-transcribe',
+      notesApiStyle: 'responses',
     })
     await expect(db.courses.get('course_default')).resolves.toMatchObject({
       title: 'General lectures',
+    })
+  })
+
+  it('migrates older provider settings with new provider defaults', async () => {
+    await db.providers.put({
+      id: 'openai',
+      transcribeModel: 'legacy-transcribe',
+      notesModel: 'legacy-notes',
+      rememberKey: false,
+      updatedAt: '2026-06-25T00:00:00.000Z',
+    } as unknown as ProviderProfile)
+
+    await ensureBootstrapData()
+
+    await expect(db.providers.get('openai')).resolves.toMatchObject({
+      id: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      transcribeModel: 'legacy-transcribe',
+      notesModel: 'legacy-notes',
+      notesApiStyle: 'responses',
     })
   })
 

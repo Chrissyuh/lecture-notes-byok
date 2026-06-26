@@ -565,7 +565,7 @@ function App() {
         setStatus(`Transcribing chunk ${chunk.index + 1}.`)
         const existingSegment = await db.segments.where('chunkId').equals(chunk.id).first()
         if (!chunk.transcribedAt && !existingSegment) {
-          const text = await transcribeWithOpenAi(key, chunk.blob, provider.transcribeModel)
+          const text = await transcribeWithOpenAi(key, chunk.blob, provider.transcribeModel, provider.baseUrl)
           const completedAt = now()
           const segment: TranscriptSegment = {
             id: newId('seg'),
@@ -589,7 +589,10 @@ function App() {
         const currentSegments = await db.segments.where('lectureId').equals(selectedLecture.id).sortBy('index')
         if (currentSegments.length === 0) throw new Error('No transcript segments are available.')
         setStatus('Generating structured notes from queued job.')
-        const draft = await generateNotesWithOpenAi(key, currentSegments, provider.notesModel)
+        const draft = await generateNotesWithOpenAi(key, currentSegments, provider.notesModel, {
+          baseUrl: provider.baseUrl,
+          notesApiStyle: provider.notesApiStyle,
+        })
         const note: LectureNote = {
           id: newId('note'),
           lectureId: selectedLecture.id,
@@ -704,9 +707,9 @@ function App() {
       setStatus('Enter a key first.')
       return
     }
-    setStatus('Validating OpenAI key.')
-    await validateOpenAiKey(key)
-    setStatus('OpenAI key validated.')
+    setStatus('Validating provider key.')
+    await validateOpenAiKey(key, provider.baseUrl)
+    setStatus('Provider key validated.')
   }
 
   async function rememberKey() {
@@ -1261,7 +1264,7 @@ function App() {
         {tab === 'settings' && (
           <div className="grid two">
             <section className="panel">
-              <h2>OpenAI Provider</h2>
+              <h2>OpenAI-Compatible Provider</h2>
               <label>
                 Session API key
                 <input
@@ -1269,6 +1272,14 @@ function App() {
                   value={sessionKey}
                   placeholder="sk-..."
                   onChange={(event) => setSessionKey(event.target.value)}
+                />
+              </label>
+              <label>
+                Base URL
+                <input
+                  value={provider.baseUrl}
+                  placeholder="https://api.openai.com/v1"
+                  onChange={(event) => setProvider({ ...provider, baseUrl: event.target.value })}
                 />
               </label>
               <label>
@@ -1281,6 +1292,21 @@ function App() {
               <label>
                 Notes model
                 <input value={provider.notesModel} onChange={(event) => setProvider({ ...provider, notesModel: event.target.value })} />
+              </label>
+              <label>
+                Notes API
+                <select
+                  value={provider.notesApiStyle}
+                  onChange={(event) =>
+                    setProvider({
+                      ...provider,
+                      notesApiStyle: event.target.value === 'chat-completions' ? 'chat-completions' : 'responses',
+                    })
+                  }
+                >
+                  <option value="responses">Responses API</option>
+                  <option value="chat-completions">Chat Completions JSON</option>
+                </select>
               </label>
               <div className="button-row">
                 <button className="primary" onClick={saveProvider}>

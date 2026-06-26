@@ -82,6 +82,8 @@ export async function ensureBootstrapData() {
   const provider = await db.providers.get('openai')
   if (!provider) {
     await db.providers.put({ ...DEFAULT_PROVIDER, updatedAt: now })
+  } else if (!provider.baseUrl || !provider.notesApiStyle) {
+    await db.providers.put({ ...DEFAULT_PROVIDER, ...provider, updatedAt: now })
   }
 
   const courseCount = await db.courses.count()

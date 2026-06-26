@@ -1,4 +1,5 @@
 export type ProviderId = 'openai'
+export type NotesApiStyle = 'responses' | 'chat-completions'
 
 export type LectureStatus = 'draft' | 'recording' | 'processing' | 'ready' | 'error'
 export type LocalJobType = 'transcribe-chunk' | 'generate-notes'
@@ -96,12 +97,14 @@ export interface LectureNote {
 
 export interface ProviderProfile {
   id: ProviderId
+  baseUrl: string
   apiKeyCiphertext?: string
   apiKeySalt?: string
   apiKeyIv?: string
   apiKeySession?: string
   transcribeModel: string
   notesModel: string
+  notesApiStyle: NotesApiStyle
   rememberKey: boolean
   updatedAt: string
 }
@@ -134,8 +137,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
 export const DEFAULT_PROVIDER: ProviderProfile = {
   id: 'openai',
+  baseUrl: 'https://api.openai.com/v1',
   transcribeModel: 'gpt-4o-mini-transcribe',
   notesModel: 'gpt-5.4-mini',
+  notesApiStyle: 'responses',
   rememberKey: false,
   updatedAt: new Date().toISOString(),
 }

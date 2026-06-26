@@ -16,9 +16,9 @@ Public-source, local-first, bring-your-own-key AI lecture note-taking.
 - Course creation, active-course selection, and course-scoped lecture library search.
 - Local data counts and one-click deletion of all lecture data on the device.
 - Persistent local provider queue with retry controls for transcription and note generation.
-- OpenAI BYOK settings with session-only keys by default.
+- OpenAI-compatible BYOK settings with configurable `/v1` base URL and session-only keys by default.
 - Optional passphrase-encrypted key storage using Web Crypto.
-- OpenAI transcription and structured note generation adapters.
+- OpenAI audio transcription plus Responses API and chat-completions JSON note generation adapters.
 - Markdown, JSON backup, and Anki CSV export.
 - Installable PWA build through `vite-plugin-pwa`.
 - Browser smoke coverage for lecture creation, transcript storage, material linking, and JSON export.
@@ -43,7 +43,7 @@ npm run test:browser
 
 ## Roadmap
 
-- Add provider adapters for Gemini, Anthropic-compatible notes, and local transcription.
+- Add first-class Gemini, Anthropic-native notes, and local transcription adapters.
 - Add speaker diarization review and segment editing.
 - Add deeper PDF/slide text extraction and timestamp alignment.
 - Expand automated browser tests around recording and provider queue flows.
