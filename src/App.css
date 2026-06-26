@@ -160,6 +160,13 @@ h2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.course-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
 .panel {
   background: #ffffff;
   border: 1px solid #dde3de;
@@ -352,6 +359,10 @@ label {
   .grid.two {
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .course-row {
+    grid-template-columns: 1fr;
   }
 
   .stat-grid {

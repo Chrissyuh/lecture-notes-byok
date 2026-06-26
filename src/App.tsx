@@ -18,6 +18,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { buildImportedAudioChunks, chunkLimitLabel } from './audioChunks'
 import { prepareLectureBackupImport } from './backups'
+import { activeCourseId, createCourseDraft, filterLecturesByCourse } from './courses'
 import { decryptSecret, encryptSecret } from './cryptoBox'
 import {
   db,
@@ -31,6 +32,8 @@ import {
   DEFAULT_PROVIDER,
   newId,
   type AudioChunk,
+  type AppSettings,
+  type Course,
   type Lecture,
   type LectureNote,
   type ProviderProfile,
@@ -78,6 +81,8 @@ function App() {
   const chunkIndexRef = useRef<number>(0)
   const [ready, setReady] = useState(false)
   const [tab, setTab] = useState<ActiveTab>('capture')
+  const [courses, setCourses] = useState<Course[]>([])
+  const [settings, setSettings] = useState<AppSettings>()
   const [lectures, setLectures] = useState<Lecture[]>([])
   const [selectedLectureId, setSelectedLectureId] = useState<string>()
   const [chunks, setChunks] = useState<AudioChunk[]>([])
@@ -87,6 +92,7 @@ function App() {
   const [sessionKey, setSessionKey] = useState('')
   const [passphrase, setPassphrase] = useState('')
   const [status, setStatus] = useState('Local workspace ready.')
+  const [courseTitle, setCourseTitle] = useState('')
   const [lectureTitle, setLectureTitle] = useState('New lecture')
   const [consentConfirmed, setConsentConfirmed] = useState(false)
   const [manualTranscript, setManualTranscript] = useState('')
@@ -111,15 +117,27 @@ function App() {
   useEffect(() => {
     if (!ready) return
     const subscriptions = [
+      db.courses.orderBy('createdAt').toArray().then(setCourses),
+      db.settings.get('settings').then(setSettings),
       db.lectures.orderBy('updatedAt').reverse().toArray().then(setLectures),
       db.providers.get('openai').then((value) => value && setProvider(value)),
     ]
     void Promise.all(subscriptions)
   }, [ready])
 
+  const selectedCourseId = activeCourseId(settings, courses)
+  const selectedCourse = courses.find((course) => course.id === selectedCourseId)
+  const courseLectures = useMemo(() => filterLecturesByCourse(lectures, selectedCourseId), [lectures, selectedCourseId])
+
   useEffect(() => {
-    if (!selectedLectureId && lectures[0]) setSelectedLectureId(lectures[0].id)
-  }, [lectures, selectedLectureId])
+    if (courseLectures.length === 0) {
+      if (selectedLectureId) setSelectedLectureId(undefined)
+      return
+    }
+    if (!selectedLectureId || !courseLectures.some((lecture) => lecture.id === selectedLectureId)) {
+      setSelectedLectureId(courseLectures[0].id)
+    }
+  }, [courseLectures, selectedLectureId])
 
   useEffect(() => {
     if (!selectedLectureId) return
@@ -129,18 +147,18 @@ function App() {
   useEffect(() => {
     if (!ready) return
     if (!libraryQuery.trim()) {
-      setLibraryResults(searchLibrary(lectures, [], [], ''))
+      setLibraryResults(searchLibrary(courseLectures, [], [], ''))
       return
     }
 
     let cancelled = false
     void Promise.all([db.segments.toArray(), db.notes.toArray()]).then(([allSegments, allNotes]) => {
-      if (!cancelled) setLibraryResults(searchLibrary(lectures, allSegments, allNotes, libraryQuery))
+      if (!cancelled) setLibraryResults(searchLibrary(courseLectures, allSegments, allNotes, libraryQuery))
     })
     return () => {
       cancelled = true
     }
-  }, [ready, lectures, libraryQuery])
+  }, [ready, courseLectures, libraryQuery])
 
   const selectedLecture = lectures.find((lecture) => lecture.id === selectedLectureId)
   const latestNote = notes[0]
@@ -152,6 +170,8 @@ function App() {
   const hasEncryptedKey = Boolean(provider.apiKeyCiphertext && provider.apiKeySalt && provider.apiKeyIv)
 
   async function refreshLists() {
+    setCourses(await db.courses.orderBy('createdAt').toArray())
+    setSettings(await db.settings.get('settings'))
     setLectures(await db.lectures.orderBy('updatedAt').reverse().toArray())
     const nextProvider = await db.providers.get('openai')
     if (nextProvider) setProvider(nextProvider)
@@ -174,10 +194,14 @@ function App() {
   }
 
   async function createLecture() {
+    if (!selectedCourseId) {
+      setStatus('Create a course before adding a lecture.')
+      return
+    }
     const createdAt = now()
     const lecture: Lecture = {
       id: newId('lecture'),
-      courseId: 'course_default',
+      courseId: selectedCourseId,
       title: lectureTitle.trim() || 'Untitled lecture',
       status: 'draft',
       consentConfirmed,
@@ -187,6 +211,28 @@ function App() {
     await db.lectures.put(lecture)
     setSelectedLectureId(lecture.id)
     setStatus('Lecture created.')
+    await refreshLists()
+  }
+
+  async function createCourse() {
+    try {
+      const createdAt = now()
+      const course = createCourseDraft(courseTitle, createdAt)
+      await db.transaction('rw', db.courses, db.settings, async () => {
+        await db.courses.put(course)
+        await db.settings.update('settings', { activeCourseId: course.id, updatedAt: createdAt })
+      })
+      setCourseTitle('')
+      setStatus(`Created course: ${course.title}.`)
+      await refreshLists()
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Course creation failed.')
+    }
+  }
+
+  async function selectCourse(courseId: string) {
+    await db.settings.update('settings', { activeCourseId: courseId, updatedAt: now() })
+    setSelectedLectureId(undefined)
     await refreshLists()
   }
 
@@ -341,7 +387,7 @@ function App() {
 
     setImportingBackup(true)
     try {
-      const prepared = prepareLectureBackupImport(JSON.parse(await file.text()))
+      const prepared = prepareLectureBackupImport(JSON.parse(await file.text()), selectedCourseId)
       await db.transaction('rw', db.lectures, db.segments, db.notes, async () => {
         await db.lectures.put(prepared.lecture)
         await db.segments.bulkPut(prepared.segments)
@@ -588,9 +634,10 @@ function App() {
           <div>
             <p className="eyebrow">Local-first workspace</p>
             <h1>{selectedLecture?.title ?? 'Create a lecture'}</h1>
+            <p className="muted">{selectedCourse?.title ?? 'No course selected'}</p>
           </div>
           <div className="pill-row">
-            <span>{lectures.length} lectures</span>
+            <span>{courseLectures.length} lectures in course</span>
             <span>{segments.length} transcript segments</span>
             <span>{chunks.length} audio chunks</span>
           </div>
@@ -598,6 +645,30 @@ function App() {
 
         {tab === 'capture' && (
           <div className="grid two">
+            <section className="panel wide">
+              <h2>Course</h2>
+              <div className="course-row">
+                <label>
+                  Active course
+                  <select value={selectedCourseId ?? ''} onChange={(event) => void selectCourse(event.target.value)}>
+                    {courses.map((course) => (
+                      <option key={course.id} value={course.id}>
+                        {course.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  New course
+                  <input value={courseTitle} onChange={(event) => setCourseTitle(event.target.value)} placeholder="Course name" />
+                </label>
+                <button disabled={!courseTitle.trim()} onClick={createCourse}>
+                  <Plus size={18} />
+                  Add Course
+                </button>
+              </div>
+            </section>
+
             <section className="panel">
               <h2>New Lecture</h2>
               <label>
@@ -781,7 +852,17 @@ function App() {
         {tab === 'library' && (
           <section className="panel">
             <h2>Lecture Library</h2>
-            <p className="muted">Import a JSON backup created by this app to restore transcript segments and notes on this device.</p>
+            <p className="muted">Browse and search lectures in the active course. Backup imports are restored into that course.</p>
+            <label>
+              Active course
+              <select value={selectedCourseId ?? ''} onChange={(event) => void selectCourse(event.target.value)}>
+                {courses.map((course) => (
+                  <option key={course.id} value={course.id}>
+                    {course.title}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="search-box">
               <Search size={18} />
               <input
