@@ -7,6 +7,7 @@ import {
   Play,
   Plus,
   Save,
+  Search,
   ShieldCheck,
   Square,
   Upload,
@@ -35,6 +36,7 @@ import {
   type ProviderProfile,
   type TranscriptSegment,
 } from './domain'
+import { searchLibrary, type LibrarySearchResult } from './librarySearch'
 import { downloadText, flashcardsToCsv, noteToMarkdown } from './exporters'
 import {
   editableDraftToNotePatch,
@@ -92,6 +94,8 @@ function App() {
   const [importingBackup, setImportingBackup] = useState(false)
   const [segmentDrafts, setSegmentDrafts] = useState<Record<string, string>>({})
   const [noteDraft, setNoteDraft] = useState<EditableNoteDraft>()
+  const [libraryQuery, setLibraryQuery] = useState('')
+  const [libraryResults, setLibraryResults] = useState<LibrarySearchResult[]>([])
   const [localStats, setLocalStats] = useState<LocalDataStats>({
     lectures: 0,
     audioChunks: 0,
@@ -121,6 +125,22 @@ function App() {
     if (!selectedLectureId) return
     void refreshLectureData(selectedLectureId)
   }, [selectedLectureId])
+
+  useEffect(() => {
+    if (!ready) return
+    if (!libraryQuery.trim()) {
+      setLibraryResults(searchLibrary(lectures, [], [], ''))
+      return
+    }
+
+    let cancelled = false
+    void Promise.all([db.segments.toArray(), db.notes.toArray()]).then(([allSegments, allNotes]) => {
+      if (!cancelled) setLibraryResults(searchLibrary(lectures, allSegments, allNotes, libraryQuery))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [ready, lectures, libraryQuery])
 
   const selectedLecture = lectures.find((lecture) => lecture.id === selectedLectureId)
   const latestNote = notes[0]
@@ -762,6 +782,14 @@ function App() {
           <section className="panel">
             <h2>Lecture Library</h2>
             <p className="muted">Import a JSON backup created by this app to restore transcript segments and notes on this device.</p>
+            <label className="search-box">
+              <Search size={18} />
+              <input
+                value={libraryQuery}
+                placeholder="Search titles, transcripts, notes, and flashcards"
+                onChange={(event) => setLibraryQuery(event.target.value)}
+              />
+            </label>
             <label className="file-picker">
               <Upload size={18} />
               Import JSON backup
@@ -776,7 +804,7 @@ function App() {
               />
             </label>
             <div className="lecture-list">
-              {lectures.map((lecture) => (
+              {libraryResults.map(({ lecture, matches }) => (
                 <button
                   key={lecture.id}
                   className={lecture.id === selectedLectureId ? 'lecture active' : 'lecture'}
@@ -787,6 +815,11 @@ function App() {
                     <small>
                       {lecture.status} - {new Date(lecture.updatedAt).toLocaleString()}
                     </small>
+                    {matches.slice(0, 2).map((match) => (
+                      <small key={match} className="match">
+                        {match}
+                      </small>
+                    ))}
                   </span>
                   <Trash2
                     size={18}
@@ -797,6 +830,7 @@ function App() {
                   />
                 </button>
               ))}
+              {libraryResults.length === 0 && <p className="muted">No local lectures match that search.</p>}
             </div>
           </section>
         )}

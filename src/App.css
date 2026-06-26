@@ -234,6 +234,26 @@ label {
   pointer-events: none;
 }
 
+.search-box {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #cbd4ce;
+  border-radius: 7px;
+  background: #ffffff;
+  padding: 0 11px;
+}
+
+.search-box input {
+  border: 0;
+  padding-inline: 0;
+}
+
+.search-box input:focus {
+  outline: none;
+}
+
 .transcript {
   white-space: pre-wrap;
   overflow: auto;
@@ -292,6 +312,10 @@ label {
 .lecture small {
   color: #66746d;
   margin-top: 3px;
+}
+
+.lecture .match {
+  color: #285f4a;
 }
 
 .lecture.active {
