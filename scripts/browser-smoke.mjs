@@ -141,14 +141,33 @@ try {
   const stream = await download.createReadStream()
   assert(stream, 'download stream was not available')
   const exported = JSON.parse(await text(stream))
-  const backupPath = path.join(tempDir, 'backup.json')
-  await writeFile(backupPath, JSON.stringify(exported, null, 2))
 
   assert(exported.lecture.title === 'Browser Smoke Lecture Renamed', 'exported lecture title did not match')
   assert(exported.segments?.[0]?.text.includes('Entropy connects heat'), 'exported transcript segment was missing')
   assert(exported.segments?.[0]?.speaker === 'Professor Rivera', 'exported speaker label was missing')
   assert(exported.materials?.[0]?.name === 'entropy-slides.txt', 'exported material metadata was missing')
   assert(exported.materials?.[0]?.linkedSegmentIds?.length === 1, 'exported material link was missing')
+
+  const backupWithFlashcard = {
+    ...exported,
+    notes: [
+      {
+        id: 'source-note-1',
+        model: 'smoke-model',
+        summary: 'Entropy connects heat and disorder.',
+        outline: ['Entropy basics'],
+        keyPoints: ['Reversible examples preserve entropy.'],
+        definitions: ['Entropy: a state function related to heat transfer.'],
+        openQuestions: ['How does irreversibility change entropy?'],
+        reviewTasks: ['Compare reversible and irreversible examples.'],
+        flashcards: [{ front: 'What does entropy connect?', back: 'Heat, disorder, and reversible examples.' }],
+        citations: [{ label: 'Entropy intro', segmentIds: [exported.segments[0].id] }],
+        createdAt: '2026-06-26T00:00:00.000Z',
+      },
+    ],
+  }
+  const backupPath = path.join(tempDir, 'backup.json')
+  await writeFile(backupPath, JSON.stringify(backupWithFlashcard, null, 2))
 
   step('importing JSON backup')
   await page.getByRole('button', { name: 'Library' }).click()
@@ -157,6 +176,29 @@ try {
   await page.getByRole('button', { name: 'Capture' }).click()
   await page.getByText('entropy-slides.txt').waitFor()
   await page.getByText('Segment 1 (0:00)').waitFor()
+
+  step('reviewing flashcard progress')
+  await page.getByRole('button', { name: 'Notes' }).click()
+  await page.getByText('What does entropy connect?').waitFor()
+  await page.getByRole('button', { name: 'Show Answer' }).click()
+  await page.getByText('Heat, disorder, and reversible examples.').waitFor()
+  await page.getByRole('button', { name: 'Known' }).click()
+  await page.getByText('Marked flashcard as known.').waitFor()
+  await page.getByText('1 known / 0 missed').waitFor()
+  await page.getByRole('button', { name: 'Missed' }).click()
+  await page.getByText('Marked flashcard as missed.').waitFor()
+  await page.getByText('1 known / 1 missed').waitFor()
+
+  step('exporting reviewed flashcard backup')
+  const reviewedDownloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'JSON Backup' }).click()
+  const reviewedDownload = await reviewedDownloadPromise
+  const reviewedStream = await reviewedDownload.createReadStream()
+  assert(reviewedStream, 'reviewed backup stream was not available')
+  const reviewedExport = JSON.parse(await text(reviewedStream))
+  assert(reviewedExport.cardReviews?.[0]?.correctCount === 1, 'reviewed backup known count was missing')
+  assert(reviewedExport.cardReviews?.[0]?.missedCount === 1, 'reviewed backup missed count was missing')
+  assert(reviewedExport.cardReviews?.[0]?.noteId === reviewedExport.notes?.[0]?.id, 'reviewed backup note id was not linked')
   step('passed')
 } catch (error) {
   console.error(error)

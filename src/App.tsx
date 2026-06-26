@@ -553,6 +553,7 @@ function App() {
         await db.cardReviews.bulkPut(prepared.cardReviews)
         await db.materials.bulkPut(prepared.materials)
       })
+      setLectures((current) => [prepared.lecture, ...current.filter((lecture) => lecture.id !== prepared.lecture.id)])
       setSelectedLectureId(prepared.lecture.id)
       setStatus(`Imported backup: ${prepared.lecture.title}.`)
       await refreshLists()
