@@ -36,6 +36,14 @@ class LectureNotesDb extends Dexie {
 
 export const db = new LectureNotesDb()
 
+export interface LocalDataStats {
+  lectures: number
+  audioChunks: number
+  transcriptSegments: number
+  notes: number
+  audioBytes: number
+}
+
 export async function ensureBootstrapData() {
   const now = new Date().toISOString()
   const settings = await db.settings.get('settings')
@@ -66,5 +74,29 @@ export async function deleteLectureCascade(lectureId: string) {
     await db.chunks.where('lectureId').equals(lectureId).delete()
     await db.segments.where('lectureId').equals(lectureId).delete()
     await db.notes.where('lectureId').equals(lectureId).delete()
+  })
+}
+
+export async function getLocalDataStats(): Promise<LocalDataStats> {
+  const [lectures, audioChunks, transcriptSegments, notes, chunks] = await Promise.all([
+    db.lectures.count(),
+    db.chunks.count(),
+    db.segments.count(),
+    db.notes.count(),
+    db.chunks.toArray(),
+  ])
+
+  return {
+    lectures,
+    audioChunks,
+    transcriptSegments,
+    notes,
+    audioBytes: chunks.reduce((total, chunk) => total + (chunk.sizeBytes || chunk.blob.size || 0), 0),
+  }
+}
+
+export async function deleteAllLectureData() {
+  await db.transaction('rw', db.lectures, db.chunks, db.segments, db.notes, async () => {
+    await Promise.all([db.lectures.clear(), db.chunks.clear(), db.segments.clear(), db.notes.clear()])
   })
 }

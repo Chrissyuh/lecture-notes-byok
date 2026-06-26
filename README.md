@@ -10,6 +10,7 @@ Public-source, local-first, bring-your-own-key AI lecture note-taking.
 - Editable transcript segments before note generation and export.
 - Editable generated notes before Markdown, JSON, and Anki export.
 - JSON backup export and import for transcript and note portability.
+- Local data counts and one-click deletion of all lecture data on the device.
 - OpenAI BYOK settings with session-only keys by default.
 - Optional passphrase-encrypted key storage using Web Crypto.
 - OpenAI transcription and structured note generation adapters.

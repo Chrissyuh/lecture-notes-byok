@@ -18,7 +18,14 @@ import './App.css'
 import { buildImportedAudioChunks, chunkLimitLabel } from './audioChunks'
 import { prepareLectureBackupImport } from './backups'
 import { decryptSecret, encryptSecret } from './cryptoBox'
-import { db, deleteLectureCascade, ensureBootstrapData } from './db'
+import {
+  db,
+  deleteAllLectureData,
+  deleteLectureCascade,
+  ensureBootstrapData,
+  getLocalDataStats,
+  type LocalDataStats,
+} from './db'
 import {
   DEFAULT_PROVIDER,
   newId,
@@ -56,6 +63,12 @@ function fileSafe(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'lecture'
 }
 
+function bytesLabel(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
 function App() {
   const recorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -79,6 +92,13 @@ function App() {
   const [importingBackup, setImportingBackup] = useState(false)
   const [segmentDrafts, setSegmentDrafts] = useState<Record<string, string>>({})
   const [noteDraft, setNoteDraft] = useState<EditableNoteDraft>()
+  const [localStats, setLocalStats] = useState<LocalDataStats>({
+    lectures: 0,
+    audioChunks: 0,
+    transcriptSegments: 0,
+    notes: 0,
+    audioBytes: 0,
+  })
 
   useEffect(() => {
     void ensureBootstrapData().then(() => setReady(true))
@@ -115,6 +135,7 @@ function App() {
     setLectures(await db.lectures.orderBy('updatedAt').reverse().toArray())
     const nextProvider = await db.providers.get('openai')
     if (nextProvider) setProvider(nextProvider)
+    setLocalStats(await getLocalDataStats())
   }
 
   async function refreshLectureData(lectureId: string) {
@@ -501,6 +522,19 @@ function App() {
     setStatus('Lecture deleted from local storage.')
   }
 
+  async function removeAllLectureData() {
+    if (!window.confirm('Delete all local lectures, audio chunks, transcripts, and generated notes on this device?')) return
+    await deleteAllLectureData()
+    setSelectedLectureId(undefined)
+    setChunks([])
+    setSegments([])
+    setNotes([])
+    setSegmentDrafts({})
+    setNoteDraft(undefined)
+    await refreshLists()
+    setStatus('All local lecture data was deleted from this browser.')
+  }
+
   if (!ready) return <main className="boot">Preparing local database...</main>
 
   return (
@@ -826,6 +860,36 @@ function App() {
                   Forget
                 </button>
               </div>
+            </section>
+
+            <section className="panel wide">
+              <h2>Local Data</h2>
+              <div className="stat-grid">
+                <span>
+                  <strong>{localStats.lectures}</strong>
+                  Lectures
+                </span>
+                <span>
+                  <strong>{localStats.audioChunks}</strong>
+                  Audio chunks
+                </span>
+                <span>
+                  <strong>{localStats.transcriptSegments}</strong>
+                  Transcript segments
+                </span>
+                <span>
+                  <strong>{localStats.notes}</strong>
+                  Notes
+                </span>
+                <span>
+                  <strong>{bytesLabel(localStats.audioBytes)}</strong>
+                  Stored audio
+                </span>
+              </div>
+              <button disabled={localStats.lectures === 0} onClick={removeAllLectureData}>
+                <Trash2 size={18} />
+                Delete All Lecture Data
+              </button>
             </section>
           </div>
         )}

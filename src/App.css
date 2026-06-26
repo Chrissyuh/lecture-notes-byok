@@ -127,6 +127,30 @@ h2 {
   font-size: 13px;
 }
 
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.stat-grid span {
+  min-height: 70px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  border: 1px solid #dce4de;
+  border-radius: 7px;
+  background: #f2f5f2;
+  color: #66746d;
+  padding: 10px;
+  font-size: 13px;
+}
+
+.stat-grid strong {
+  color: #18201f;
+  font-size: 20px;
+}
+
 .grid {
   display: grid;
   gap: 16px;
@@ -304,5 +328,9 @@ label {
   .grid.two {
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
