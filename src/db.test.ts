@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db, deleteAllLectureData, deleteLectureCascade, ensureBootstrapData, getLocalDataStats } from './db'
-import type { AudioChunk, Lecture, LectureNote, TranscriptSegment } from './domain'
+import type { AudioChunk, Lecture, LectureNote, LocalJob, TranscriptSegment } from './domain'
 
 describe('local database', () => {
   beforeEach(async () => {
@@ -73,11 +73,23 @@ describe('local database', () => {
       citations: [],
       createdAt,
     }
+    const localJob: LocalJob = {
+      id: 'job-1',
+      lectureId: lecture.id,
+      type: 'generate-notes',
+      status: 'queued',
+      attempts: 0,
+      maxAttempts: 2,
+      runAfter: createdAt,
+      createdAt,
+      updatedAt: createdAt,
+    }
 
     await db.lectures.put(lecture)
     await db.chunks.put(chunk)
     await db.segments.put(segment)
     await db.notes.put(note)
+    await db.jobs.put(localJob)
 
     await deleteLectureCascade(lecture.id)
 
@@ -85,6 +97,7 @@ describe('local database', () => {
     await expect(db.chunks.count()).resolves.toBe(0)
     await expect(db.segments.count()).resolves.toBe(0)
     await expect(db.notes.count()).resolves.toBe(0)
+    await expect(db.jobs.count()).resolves.toBe(0)
   })
 
   it('reports and clears local lecture data without deleting provider settings', async () => {
@@ -122,12 +135,25 @@ describe('local database', () => {
       uncertain: false,
       createdAt,
     })
+    await db.jobs.put({
+      id: 'job-1',
+      lectureId: lecture.id,
+      type: 'generate-notes',
+      status: 'error',
+      attempts: 1,
+      maxAttempts: 2,
+      runAfter: createdAt,
+      createdAt,
+      updatedAt: createdAt,
+      lastError: 'Network error',
+    })
 
     await expect(getLocalDataStats()).resolves.toMatchObject({
       lectures: 1,
       audioChunks: 1,
       transcriptSegments: 1,
       notes: 0,
+      queuedJobs: 1,
       audioBytes: 5,
     })
 
@@ -138,6 +164,7 @@ describe('local database', () => {
       audioChunks: 0,
       transcriptSegments: 0,
       notes: 0,
+      queuedJobs: 0,
       audioBytes: 0,
     })
     await expect(db.providers.get('openai')).resolves.toMatchObject({ id: 'openai' })

@@ -1,6 +1,8 @@
 export type ProviderId = 'openai'
 
 export type LectureStatus = 'draft' | 'recording' | 'processing' | 'ready' | 'error'
+export type LocalJobType = 'transcribe-chunk' | 'generate-notes'
+export type LocalJobStatus = 'queued' | 'running' | 'done' | 'error'
 
 export interface Course {
   id: string
@@ -46,6 +48,20 @@ export interface TranscriptSegment {
   uncertain: boolean
   createdAt: string
   editedAt?: string
+}
+
+export interface LocalJob {
+  id: string
+  lectureId: string
+  type: LocalJobType
+  targetId?: string
+  status: LocalJobStatus
+  attempts: number
+  maxAttempts: number
+  runAfter: string
+  createdAt: string
+  updatedAt: string
+  lastError?: string
 }
 
 export interface LectureNote {

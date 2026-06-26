@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Square,
   Upload,
+  RotateCcw,
   Trash2,
   WandSparkles,
 } from 'lucide-react'
@@ -36,6 +37,7 @@ import {
   type Course,
   type Lecture,
   type LectureNote,
+  type LocalJob,
   type ProviderProfile,
   type TranscriptSegment,
 } from './domain'
@@ -50,6 +52,7 @@ import {
   type EditableNoteDraft,
 } from './noteEdits'
 import { generateNotesWithOpenAi, transcribeWithOpenAi, validateOpenAiKey } from './openaiProvider'
+import { createNotesJob, createTranscriptionJobs, nextRunAfter, summarizeJobs } from './queue'
 import { findChangedTranscriptSegments, hasEmptyTranscriptDraft } from './transcript'
 
 type ActiveTab = 'capture' | 'notes' | 'library' | 'settings'
@@ -89,6 +92,7 @@ function App() {
   const [chunks, setChunks] = useState<AudioChunk[]>([])
   const [segments, setSegments] = useState<TranscriptSegment[]>([])
   const [notes, setNotes] = useState<LectureNote[]>([])
+  const [jobs, setJobs] = useState<LocalJob[]>([])
   const [provider, setProvider] = useState<ProviderProfile>(DEFAULT_PROVIDER)
   const [sessionKey, setSessionKey] = useState('')
   const [passphrase, setPassphrase] = useState('')
@@ -99,6 +103,7 @@ function App() {
   const [manualTranscript, setManualTranscript] = useState('')
   const [importingAudio, setImportingAudio] = useState(false)
   const [importingBackup, setImportingBackup] = useState(false)
+  const [processingQueue, setProcessingQueue] = useState(false)
   const [segmentDrafts, setSegmentDrafts] = useState<Record<string, string>>({})
   const [noteDraft, setNoteDraft] = useState<EditableNoteDraft>()
   const [studyCardIndex, setStudyCardIndex] = useState(0)
@@ -110,6 +115,7 @@ function App() {
     audioChunks: 0,
     transcriptSegments: 0,
     notes: 0,
+    queuedJobs: 0,
     audioBytes: 0,
   })
 
@@ -167,6 +173,7 @@ function App() {
   const latestNote = notes[0]
   const studyCards = useMemo(() => studyCardsFromNote(latestNote), [latestNote])
   const activeStudyCard = studyCards[studyCardIndex]
+  const queueSummary = useMemo(() => summarizeJobs(jobs), [jobs])
   const hasTranscriptEdits = useMemo(
     () => findChangedTranscriptSegments(segments, segmentDrafts).length > 0,
     [segments, segmentDrafts],
@@ -189,15 +196,17 @@ function App() {
   }
 
   async function refreshLectureData(lectureId: string) {
-    const [nextChunks, nextSegments, nextNotes] = await Promise.all([
+    const [nextChunks, nextSegments, nextNotes, nextJobs] = await Promise.all([
       db.chunks.where('lectureId').equals(lectureId).sortBy('index'),
       db.segments.where('lectureId').equals(lectureId).sortBy('index'),
       db.notes.where('lectureId').equals(lectureId).reverse().sortBy('createdAt'),
+      db.jobs.where('lectureId').equals(lectureId).sortBy('createdAt'),
     ])
     const orderedNotes = nextNotes.reverse()
     setChunks(nextChunks)
     setSegments(nextSegments)
     setNotes(orderedNotes)
+    setJobs(nextJobs)
     setSegmentDrafts(Object.fromEntries(nextSegments.map((segment) => [segment.id, segment.text])))
     const newestNote = orderedNotes[0]
     setNoteDraft(newestNote ? noteToEditableDraft(newestNote) : undefined)
@@ -419,69 +428,178 @@ function App() {
     }
   }
 
-  async function transcribePendingChunks() {
+  async function queueTranscriptionJobs() {
+    if (!selectedLecture) return
+    const createdAt = now()
+    const newJobs = createTranscriptionJobs(chunks, jobs, createdAt)
+    if (newJobs.length === 0) {
+      setStatus('No new transcription jobs to queue.')
+      return
+    }
+
+    await db.jobs.bulkPut(newJobs)
+    await db.lectures.update(selectedLecture.id, { status: 'processing', updatedAt: createdAt })
+    setStatus(`Queued ${newJobs.length} transcription job${newJobs.length === 1 ? '' : 's'}.`)
+    await refreshLists()
+    await refreshLectureData(selectedLecture.id)
+    await processQueue()
+  }
+
+  async function processQueue() {
     if (!selectedLecture) return
     const key = await resolveApiKey()
     if (!key) {
-      setStatus('Add a session key or unlock a remembered key first.')
+      setStatus('Add a session key or unlock a remembered key before processing queued provider jobs.')
       return
     }
 
-    const pending = chunks.filter((chunk) => !chunk.transcribedAt)
-    if (pending.length === 0) {
-      setStatus('No pending audio chunks to transcribe.')
-      return
-    }
+    setProcessingQueue(true)
+    try {
+      let processed = 0
+      let failed = 0
+      for (;;) {
+        const currentJobs = await db.jobs.where('lectureId').equals(selectedLecture.id).toArray()
+        const currentTime = Date.now()
+        const runnable = currentJobs
+          .filter(
+            (job) =>
+              (job.status === 'queued' || job.status === 'error') &&
+              job.attempts < job.maxAttempts &&
+              new Date(job.runAfter).getTime() <= currentTime,
+          )
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0]
 
-    await db.lectures.update(selectedLecture.id, { status: 'processing', updatedAt: now() })
-    for (const chunk of pending) {
-      setStatus(`Transcribing chunk ${chunk.index + 1} of ${pending.length}.`)
-      const text = await transcribeWithOpenAi(key, chunk.blob, provider.transcribeModel)
-      const segment: TranscriptSegment = {
-        id: newId('seg'),
-        lectureId: selectedLecture.id,
-        chunkId: chunk.id,
-        index: chunk.index,
-        startMs: chunk.index * 60_000,
-        endMs: (chunk.index + 1) * 60_000,
-        text,
-        uncertain: text.length === 0,
-        createdAt: now(),
+        if (!runnable) break
+        const succeeded = await runQueueJob(runnable, key)
+        processed += 1
+        if (!succeeded) failed += 1
+        await refreshLists()
+        await refreshLectureData(selectedLecture.id)
       }
-      await db.transaction('rw', db.chunks, db.segments, async () => {
-        await db.segments.put(segment)
-        await db.chunks.update(chunk.id, { transcribedAt: now() })
-      })
-    }
 
-    await db.lectures.update(selectedLecture.id, { status: 'ready', updatedAt: now() })
-    setStatus('Transcription complete.')
-    await refreshLists()
-    await refreshLectureData(selectedLecture.id)
+      if (processed === 0) {
+        setStatus('No queued jobs are ready to run yet.')
+      } else if (failed > 0) {
+        setStatus(`Processed ${processed} queued job${processed === 1 ? '' : 's'}; ${failed} need retry.`)
+      } else {
+        setStatus(`Processed ${processed} queued job${processed === 1 ? '' : 's'}.`)
+      }
+    } finally {
+      setProcessingQueue(false)
+    }
   }
 
-  async function generateNotes() {
+  async function runQueueJob(job: LocalJob, key: string) {
+    if (!selectedLecture) return false
+    const attempt = job.attempts + 1
+    const startedAt = now()
+    await db.jobs.update(job.id, { status: 'running', attempts: attempt, updatedAt: startedAt, lastError: undefined })
+
+    try {
+      if (job.type === 'transcribe-chunk') {
+        const chunk = job.targetId ? await db.chunks.get(job.targetId) : undefined
+        if (!chunk) throw new Error('Audio chunk was deleted.')
+        setStatus(`Transcribing chunk ${chunk.index + 1}.`)
+        const existingSegment = await db.segments.where('chunkId').equals(chunk.id).first()
+        if (!chunk.transcribedAt && !existingSegment) {
+          const text = await transcribeWithOpenAi(key, chunk.blob, provider.transcribeModel)
+          const completedAt = now()
+          const segment: TranscriptSegment = {
+            id: newId('seg'),
+            lectureId: selectedLecture.id,
+            chunkId: chunk.id,
+            index: chunk.index,
+            startMs: chunk.index * 60_000,
+            endMs: (chunk.index + 1) * 60_000,
+            text,
+            uncertain: text.length === 0,
+            createdAt: completedAt,
+          }
+          await db.transaction('rw', db.chunks, db.segments, async () => {
+            await db.segments.put(segment)
+            await db.chunks.update(chunk.id, { transcribedAt: completedAt })
+          })
+        } else if (!chunk.transcribedAt) {
+          await db.chunks.update(chunk.id, { transcribedAt: now() })
+        }
+      } else {
+        const currentSegments = await db.segments.where('lectureId').equals(selectedLecture.id).sortBy('index')
+        if (currentSegments.length === 0) throw new Error('No transcript segments are available.')
+        setStatus('Generating structured notes from queued job.')
+        const draft = await generateNotesWithOpenAi(key, currentSegments, provider.notesModel)
+        const note: LectureNote = {
+          id: newId('note'),
+          lectureId: selectedLecture.id,
+          model: provider.notesModel,
+          ...draft,
+          createdAt: now(),
+        }
+        await db.notes.put(note)
+      }
+
+      const completedAt = now()
+      await db.transaction('rw', db.jobs, db.lectures, async () => {
+        await db.jobs.update(job.id, { status: 'done', updatedAt: completedAt, lastError: undefined })
+        await db.lectures.update(selectedLecture.id, { status: 'ready', updatedAt: completedAt })
+      })
+      return true
+    } catch (error) {
+      const failedAt = now()
+      const message = error instanceof Error ? error.message : 'Provider job failed.'
+      await db.transaction('rw', db.jobs, db.lectures, async () => {
+        await db.jobs.update(job.id, {
+          status: 'error',
+          updatedAt: failedAt,
+          runAfter: nextRunAfter(failedAt, attempt),
+          lastError: message,
+        })
+        await db.lectures.update(selectedLecture.id, { status: 'error', error: message, updatedAt: failedAt })
+      })
+      setStatus(`Queued job failed: ${message}`)
+      return false
+    }
+  }
+
+  async function queueNoteGeneration() {
     if (!selectedLecture || segments.length === 0) return
-    const key = await resolveApiKey()
-    if (!key) {
-      setStatus('Add a session key or unlock a remembered key first.')
+    const createdAt = now()
+    const job = createNotesJob(selectedLecture.id, jobs, createdAt)
+    if (!job) {
+      setStatus('A note-generation job is already queued for this lecture.')
       return
     }
 
-    setStatus('Generating structured notes.')
-    const draft = await generateNotesWithOpenAi(key, segments, provider.notesModel)
-    const note: LectureNote = {
-      id: newId('note'),
-      lectureId: selectedLecture.id,
-      model: provider.notesModel,
-      ...draft,
-      createdAt: now(),
-    }
-    await db.notes.put(note)
-    await db.lectures.update(selectedLecture.id, { status: 'ready', updatedAt: now() })
-    setStatus('Notes generated.')
+    await db.jobs.put(job)
+    await db.lectures.update(selectedLecture.id, { status: 'processing', updatedAt: createdAt })
+    setStatus('Queued note-generation job.')
     await refreshLists()
     await refreshLectureData(selectedLecture.id)
+    await processQueue()
+  }
+
+  async function retryFailedJobs() {
+    if (!selectedLecture) return
+    const failed = jobs.filter((job) => job.status === 'error')
+    if (failed.length === 0) {
+      setStatus('No failed jobs to retry.')
+      return
+    }
+
+    const retryAt = now()
+    await Promise.all(
+      failed.map((job) =>
+        db.jobs.update(job.id, {
+          status: 'queued',
+          attempts: 0,
+          runAfter: retryAt,
+          updatedAt: retryAt,
+          lastError: undefined,
+        }),
+      ),
+    )
+    setStatus(`Re-queued ${failed.length} failed job${failed.length === 1 ? '' : 's'}.`)
+    await refreshLectureData(selectedLecture.id)
+    await processQueue()
   }
 
   async function saveTranscriptEdits() {
@@ -610,6 +728,7 @@ function App() {
     setChunks([])
     setSegments([])
     setNotes([])
+    setJobs([])
     setSegmentDrafts({})
     setNoteDraft(undefined)
     await refreshLists()
@@ -655,6 +774,7 @@ function App() {
             <span>{courseLectures.length} lectures in course</span>
             <span>{segments.length} transcript segments</span>
             <span>{chunks.length} audio chunks</span>
+            <span>{queueSummary.queued + queueSummary.running + queueSummary.error} active jobs</span>
           </div>
         </header>
 
@@ -718,9 +838,9 @@ function App() {
                   <Square size={18} />
                   Stop
                 </button>
-                <button disabled={!selectedLecture || chunks.length === 0} onClick={transcribePendingChunks}>
+                <button disabled={!selectedLecture || chunks.length === 0 || processingQueue} onClick={queueTranscriptionJobs}>
                   <WandSparkles size={18} />
-                  Transcribe
+                  Queue Transcription
                 </button>
               </div>
               <div className="chunk-list">
@@ -753,6 +873,48 @@ function App() {
                   }}
                 />
               </label>
+            </section>
+
+            <section className="panel wide">
+              <h2>Processing Queue</h2>
+              <div className="stat-grid queue-stats">
+                <span>
+                  <strong>{queueSummary.queued}</strong>
+                  Queued
+                </span>
+                <span>
+                  <strong>{queueSummary.running}</strong>
+                  Running
+                </span>
+                <span>
+                  <strong>{queueSummary.error}</strong>
+                  Needs retry
+                </span>
+                <span>
+                  <strong>{queueSummary.done}</strong>
+                  Done
+                </span>
+              </div>
+              <div className="button-row">
+                <button disabled={!selectedLecture || processingQueue} onClick={processQueue}>
+                  <WandSparkles size={18} />
+                  Process Queue
+                </button>
+                <button disabled={!selectedLecture || queueSummary.error === 0 || processingQueue} onClick={retryFailedJobs}>
+                  <RotateCcw size={18} />
+                  Retry Failed
+                </button>
+              </div>
+              <div className="job-list">
+                {jobs.slice(-5).map((job) => (
+                  <span key={job.id}>
+                    {job.type === 'transcribe-chunk' ? 'Transcription' : 'Notes'} - {job.status} - attempts {job.attempts}/
+                    {job.maxAttempts}
+                    {job.lastError ? ` - ${job.lastError}` : ''}
+                  </span>
+                ))}
+                {jobs.length === 0 && <p className="muted">No queued provider work for this lecture.</p>}
+              </div>
             </section>
 
             <section className="panel wide">
@@ -801,9 +963,9 @@ function App() {
             </section>
             <section className="panel">
               <h2>Generated Notes</h2>
-              <button className="primary" disabled={segments.length === 0} onClick={generateNotes}>
+              <button className="primary" disabled={segments.length === 0 || processingQueue} onClick={queueNoteGeneration}>
                 <WandSparkles size={18} />
-                Generate Notes
+                Queue Notes
               </button>
               {latestNote && noteDraft ? (
                 <article className="notes">
@@ -1032,6 +1194,10 @@ function App() {
                 <span>
                   <strong>{localStats.notes}</strong>
                   Notes
+                </span>
+                <span>
+                  <strong>{localStats.queuedJobs}</strong>
+                  Active jobs
                 </span>
                 <span>
                   <strong>{bytesLabel(localStats.audioBytes)}</strong>
