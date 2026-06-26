@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { activeCourseId, canMoveLectureToCourse, cleanLectureTitle, createCourseDraft, filterLecturesByCourse } from './courses'
+import {
+  activeCourseId,
+  canDeleteCourse,
+  canMoveLectureToCourse,
+  cleanCourseTitle,
+  cleanLectureTitle,
+  createCourseDraft,
+  filterLecturesByCourse,
+} from './courses'
 import type { Course, Lecture } from './domain'
 
 const courses: Course[] = [
@@ -34,6 +42,7 @@ describe('course helpers', () => {
 
     expect(course.title).toBe('Chemistry')
     expect(course.id).toMatch(/^course_/)
+    expect(cleanCourseTitle('  Seminar  ')).toBe('Seminar')
   })
 
   it('chooses a valid active course or falls back to the first course', () => {
@@ -54,5 +63,11 @@ describe('course helpers', () => {
     expect(cleanLectureTitle('   ')).toBe('Untitled lecture')
     expect(canMoveLectureToCourse('course-b', courses)).toBe(true)
     expect(canMoveLectureToCourse('missing', courses)).toBe(false)
+  })
+
+  it('only allows deleting empty non-last courses', () => {
+    expect(canDeleteCourse('course-a', courses, lectures)).toBe(false)
+    expect(canDeleteCourse('course-b', courses, [lectures[0]])).toBe(true)
+    expect(canDeleteCourse('course-a', [courses[0]], [])).toBe(false)
   })
 })

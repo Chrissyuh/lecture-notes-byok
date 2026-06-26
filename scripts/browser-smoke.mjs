@@ -5,11 +5,13 @@ import { spawn } from 'node:child_process'
 import { text } from 'node:stream/consumers'
 import { chromium } from 'playwright'
 
-const baseUrl = process.env.SMOKE_BASE_URL ?? 'http://127.0.0.1:4173/lecture-notes-byok/'
-const previewCommand =
-  process.platform === 'win32'
-    ? { command: 'cmd.exe', args: ['/d', '/s', '/c', 'npm run preview -- --host 127.0.0.1 --port 4173'] }
-    : { command: 'npm', args: ['run', 'preview', '--', '--host', '127.0.0.1', '--port', '4173'] }
+const port = process.env.SMOKE_PORT ?? String(4300 + Math.floor(Math.random() * 1000))
+const baseUrl = process.env.SMOKE_BASE_URL ?? `http://127.0.0.1:${port}/lecture-notes-byok/`
+const viteBin = path.join(process.cwd(), 'node_modules', 'vite', 'bin', 'vite.js')
+const previewCommand = {
+  command: process.execPath,
+  args: [viteBin, 'preview', '--host', '127.0.0.1', '--port', port],
+}
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -37,6 +39,10 @@ function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 
+function step(message) {
+  console.log(`[browser-smoke] ${message}`)
+}
+
 const preview = spawn(previewCommand.command, previewCommand.args, {
   stdio: 'inherit',
   shell: false,
@@ -45,7 +51,9 @@ const preview = spawn(previewCommand.command, previewCommand.args, {
 let browser
 
 try {
+  step('waiting for preview server')
   await waitForServer(baseUrl)
+  step('opening browser')
   browser = await chromium.launch()
   const context = await browser.newContext({ acceptDownloads: true })
   const page = await context.newPage()
@@ -63,11 +71,26 @@ try {
   await page.reload()
   await page.getByRole('heading', { name: 'Create a lecture' }).waitFor()
 
-  await page.getByLabel('Title').fill('Browser Smoke Lecture')
+  step('creating and renaming course')
+  await page.getByPlaceholder('Course name').fill('Browser Smoke Course')
+  await page.getByRole('button', { name: 'Add Course' }).click()
+  await page.getByText('Created course: Browser Smoke Course.').waitFor()
+  await page.locator('.detail-editor').getByLabel('Title').fill('Browser Smoke Course Renamed')
+  await page.getByRole('button', { name: 'Save Course' }).click()
+  await page.getByText('Course details saved.').waitFor()
+  await page.getByText('Browser Smoke Course Renamed').first().waitFor()
+
+  step('creating lecture')
+  await page
+    .locator('section.panel')
+    .filter({ has: page.getByRole('heading', { name: 'New Lecture' }) })
+    .getByLabel('Title')
+    .fill('Browser Smoke Lecture')
   await page.getByLabel('I have permission to record this lecture and will follow course policy.').check()
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByRole('heading', { name: 'Browser Smoke Lecture' }).waitFor()
 
+  step('renaming lecture')
   await page.getByRole('button', { name: 'Library' }).click()
   const details = page.locator('.detail-editor')
   await details.getByLabel('Title').fill('Browser Smoke Lecture Renamed')
@@ -75,15 +98,17 @@ try {
   await page.getByText('Lecture details saved.').waitFor()
   await page.getByRole('heading', { name: 'Browser Smoke Lecture Renamed' }).waitFor()
 
+  step('adding transcript')
   await page.getByRole('button', { name: 'Capture' }).click()
   await page
-    .locator('section')
+    .locator('section.panel')
     .filter({ has: page.getByRole('heading', { name: 'Manual Transcript' }) })
     .locator('textarea')
     .fill('Entropy connects heat, disorder, and reversible lecture examples.')
   await page.getByRole('button', { name: 'Add Segment' }).click()
   await page.getByText('Manual transcript segment added.').waitFor()
 
+  step('attaching material')
   const tempDir = await mkdtemp(path.join(tmpdir(), 'lecture-notes-smoke-'))
   const materialPath = path.join(tempDir, 'entropy-slides.txt')
   await writeFile(materialPath, 'Entropy reversible slide text')
@@ -91,12 +116,14 @@ try {
   await page.getByText('entropy-slides.txt').waitFor()
   await page.getByText('Segment 1 (0:00)').waitFor()
 
+  step('editing speaker')
   await page.getByRole('button', { name: 'Notes' }).click()
   await page.getByText('Entropy connects heat, disorder, and reversible lecture examples.').waitFor()
   await page.getByPlaceholder('Speaker label').fill('Professor Rivera')
   await page.getByRole('button', { name: 'Save Transcript Edits' }).click()
   await page.getByText('Saved 1 transcript edit.').waitFor()
 
+  step('exporting JSON')
   const downloadPromise = page.waitForEvent('download')
   await page.getByRole('button', { name: 'JSON Backup' }).click()
   const download = await downloadPromise
@@ -109,6 +136,10 @@ try {
   assert(exported.segments?.[0]?.speaker === 'Professor Rivera', 'exported speaker label was missing')
   assert(exported.materials?.[0]?.name === 'entropy-slides.txt', 'exported material metadata was missing')
   assert(exported.materials?.[0]?.linkedSegmentIds?.length === 1, 'exported material link was missing')
+  step('passed')
+} catch (error) {
+  console.error(error)
+  process.exitCode = 1
 } finally {
   if (browser) await browser.close()
   preview.kill()

@@ -15,6 +15,7 @@ Public-source, local-first, bring-your-own-key AI lecture note-taking.
 - JSON backup export and import for transcript and note portability.
 - Local search across lecture titles, transcript text, generated notes, and flashcards.
 - Course creation, active-course selection, and course-scoped lecture library search.
+- Course renaming and empty-course deletion safeguards.
 - Lecture detail editing for title, course assignment, and recording-permission status.
 - Local data counts and one-click deletion of all lecture data on the device.
 - Persistent local provider queue with retry controls for transcription and note generation.

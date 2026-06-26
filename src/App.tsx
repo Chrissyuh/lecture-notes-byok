@@ -19,7 +19,15 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { buildImportedAudioChunks, chunkLimitLabel } from './audioChunks'
 import { prepareLectureBackupImport } from './backups'
-import { activeCourseId, canMoveLectureToCourse, cleanLectureTitle, createCourseDraft, filterLecturesByCourse } from './courses'
+import {
+  activeCourseId,
+  canDeleteCourse,
+  canMoveLectureToCourse,
+  cleanCourseTitle,
+  cleanLectureTitle,
+  createCourseDraft,
+  filterLecturesByCourse,
+} from './courses'
 import { decryptSecret, encryptSecret } from './cryptoBox'
 import {
   db,
@@ -101,6 +109,7 @@ function App() {
   const [passphrase, setPassphrase] = useState('')
   const [status, setStatus] = useState('Local workspace ready.')
   const [courseTitle, setCourseTitle] = useState('')
+  const [courseEditTitle, setCourseEditTitle] = useState('')
   const [lectureTitle, setLectureTitle] = useState('New lecture')
   const [lectureEditTitle, setLectureEditTitle] = useState('')
   const [lectureEditCourseId, setLectureEditCourseId] = useState('')
@@ -148,6 +157,7 @@ function App() {
   const selectedCourseId = activeCourseId(settings, courses)
   const selectedCourse = courses.find((course) => course.id === selectedCourseId)
   const courseLectures = useMemo(() => filterLecturesByCourse(lectures, selectedCourseId), [lectures, selectedCourseId])
+  const selectedCourseCanDelete = Boolean(selectedCourseId && canDeleteCourse(selectedCourseId, courses, lectures))
 
   useEffect(() => {
     if (courseLectures.length === 0) {
@@ -219,6 +229,10 @@ function App() {
     setLectureEditConsent(selectedLecture.consentConfirmed)
   }, [selectedLecture])
 
+  useEffect(() => {
+    setCourseEditTitle(selectedCourse?.title ?? '')
+  }, [selectedCourse?.id, selectedCourse?.title])
+
   async function refreshLists() {
     setCourses(await db.courses.orderBy('createdAt').toArray())
     setSettings(await db.settings.get('settings'))
@@ -289,6 +303,38 @@ function App() {
   async function selectCourse(courseId: string) {
     await db.settings.update('settings', { activeCourseId: courseId, updatedAt: now() })
     setSelectedLectureId(undefined)
+    await refreshLists()
+  }
+
+  async function saveCourseDetails() {
+    if (!selectedCourse) return
+    const title = cleanCourseTitle(courseEditTitle)
+    if (!title) {
+      setStatus('Course title is required.')
+      return
+    }
+
+    await db.courses.update(selectedCourse.id, { title })
+    setStatus('Course details saved.')
+    await refreshLists()
+  }
+
+  async function deleteSelectedCourse() {
+    if (!selectedCourseId || !selectedCourse) return
+    if (!canDeleteCourse(selectedCourseId, courses, lectures)) {
+      setStatus('Only empty non-last courses can be deleted.')
+      return
+    }
+    if (!window.confirm(`Delete empty course "${selectedCourse.title}" from this browser?`)) return
+
+    const nextActiveCourse = courses.find((course) => course.id !== selectedCourseId)
+    const updatedAt = now()
+    await db.transaction('rw', db.courses, db.settings, async () => {
+      await db.courses.delete(selectedCourseId)
+      await db.settings.update('settings', { activeCourseId: nextActiveCourse?.id, updatedAt })
+    })
+    setSelectedLectureId(undefined)
+    setStatus('Empty course deleted.')
     await refreshLists()
   }
 
@@ -933,6 +979,25 @@ function App() {
                   Add Course
                 </button>
               </div>
+              {selectedCourse && (
+                <div className="detail-editor">
+                  <h3>Course Details</h3>
+                  <label>
+                    Title
+                    <input value={courseEditTitle} onChange={(event) => setCourseEditTitle(event.target.value)} />
+                  </label>
+                  <div className="button-row">
+                    <button disabled={!courseEditTitle.trim()} onClick={saveCourseDetails}>
+                      <Save size={18} />
+                      Save Course
+                    </button>
+                    <button disabled={!selectedCourseCanDelete} onClick={deleteSelectedCourse}>
+                      <Trash2 size={18} />
+                      Delete Empty Course
+                    </button>
+                  </div>
+                </div>
+              )}
             </section>
 
             <section className="panel">
