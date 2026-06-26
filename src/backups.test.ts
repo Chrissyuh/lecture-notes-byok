@@ -21,6 +21,16 @@ describe('lecture backup import', () => {
             uncertain: false,
           },
         ],
+        materials: [
+          {
+            name: 'cell-slides.txt',
+            kind: 'text',
+            mimeType: 'text/plain',
+            sizeBytes: 120,
+            searchableText: 'Cell membrane slide text',
+            linkedSegmentIds: ['old-seg'],
+          },
+        ],
         notes: [
           {
             id: 'old-note',
@@ -47,6 +57,16 @@ describe('lecture backup import', () => {
     expect(prepared.segments[0].speaker).toBe('Instructor')
     expect(prepared.notes[0].lectureId).toBe(prepared.lecture.id)
     expect(prepared.notes[0].citations[0].segmentIds[0]).toBe(prepared.segments[0].id)
+    expect(prepared.materials[0]).toMatchObject({
+      lectureId: prepared.lecture.id,
+      name: 'cell-slides.txt',
+      kind: 'text',
+      mimeType: 'text/plain',
+      sizeBytes: 120,
+      searchableText: 'Cell membrane slide text',
+      linkedSegmentIds: [prepared.segments[0].id],
+    })
+    expect(prepared.materials[0].blob.size).toBe(0)
   })
 
   it('rejects malformed backup payloads', () => {

@@ -12,7 +12,7 @@ Public-source, local-first, bring-your-own-key AI lecture note-taking.
 - Speaker label review on transcript segments before notes and export.
 - Editable generated notes before Markdown, JSON, and Anki export.
 - In-app flashcard review for generated study cards.
-- JSON backup export and import for transcript and note portability.
+- JSON backup export and import for transcript, note, and material metadata portability.
 - Local search across lecture titles, transcript text, generated notes, and flashcards.
 - Course creation, active-course selection, and course-scoped lecture library search.
 - Course renaming and empty-course deletion safeguards.

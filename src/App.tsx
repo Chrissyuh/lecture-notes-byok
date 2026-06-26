@@ -519,10 +519,11 @@ function App() {
     setImportingBackup(true)
     try {
       const prepared = prepareLectureBackupImport(JSON.parse(await file.text()), selectedCourseId)
-      await db.transaction('rw', db.lectures, db.segments, db.notes, async () => {
+      await db.transaction('rw', db.lectures, db.segments, db.notes, db.materials, async () => {
         await db.lectures.put(prepared.lecture)
         await db.segments.bulkPut(prepared.segments)
         await db.notes.bulkPut(prepared.notes)
+        await db.materials.bulkPut(prepared.materials)
       })
       setSelectedLectureId(prepared.lecture.id)
       setStatus(`Imported backup: ${prepared.lecture.title}.`)

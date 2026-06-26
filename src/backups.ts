@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { newId, type Lecture, type LectureNote, type TranscriptSegment } from './domain'
+import { newId, type Lecture, type LectureMaterial, type LectureNote, type TranscriptSegment } from './domain'
 
 const lectureBackupSchema = z.object({
   lecture: z.object({
@@ -11,6 +11,7 @@ const lectureBackupSchema = z.object({
   }),
   segments: z.array(
     z.object({
+      id: z.string().optional(),
       index: z.number(),
       startMs: z.number(),
       endMs: z.number(),
@@ -21,6 +22,19 @@ const lectureBackupSchema = z.object({
       editedAt: z.string().optional(),
     }),
   ),
+  materials: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        kind: z.enum(['pdf', 'slides', 'image', 'text', 'other']).default('other'),
+        mimeType: z.string().optional(),
+        sizeBytes: z.number().optional(),
+        searchableText: z.string().optional(),
+        linkedSegmentIds: z.array(z.string()).default([]),
+        createdAt: z.string().optional(),
+      }),
+    )
+    .default([]),
   notes: z.array(
     z.object({
       model: z.string(),
@@ -42,6 +56,7 @@ export interface PreparedLectureBackup {
   lecture: Lecture
   segments: TranscriptSegment[]
   notes: LectureNote[]
+  materials: LectureMaterial[]
 }
 
 export function prepareLectureBackupImport(raw: unknown, courseId = 'course_default', importedAt = new Date().toISOString()) {
@@ -64,6 +79,7 @@ export function prepareLectureBackupImport(raw: unknown, courseId = 'course_defa
     .sort((a, b) => a.index - b.index)
     .map((segment, index) => {
       const id = newId('seg')
+      if (segment.id) segmentIdMap.set(segment.id, id)
       segmentIdMap.set(`seg-${segment.index}`, id)
       return {
         id,
@@ -79,6 +95,22 @@ export function prepareLectureBackupImport(raw: unknown, courseId = 'course_defa
       }
     })
     .filter((segment) => segment.text.length > 0)
+
+  const materials: LectureMaterial[] = parsed.materials.map((material) => {
+    const searchableText = material.searchableText?.trim()
+    return {
+      id: newId('material'),
+      lectureId,
+      name: material.name.trim(),
+      kind: material.kind,
+      mimeType: material.mimeType ?? 'application/octet-stream',
+      blob: new Blob([]),
+      sizeBytes: material.sizeBytes ?? 0,
+      searchableText: searchableText || undefined,
+      linkedSegmentIds: material.linkedSegmentIds.map((id) => segmentIdMap.get(id) ?? id),
+      createdAt: material.createdAt ?? importedAt,
+    }
+  })
 
   const notes: LectureNote[] = parsed.notes.map((note) => ({
     id: newId('note'),
@@ -99,7 +131,7 @@ export function prepareLectureBackupImport(raw: unknown, courseId = 'course_defa
     editedAt: note.editedAt,
   }))
 
-  return { lecture, segments, notes } satisfies PreparedLectureBackup
+  return { lecture, segments, notes, materials } satisfies PreparedLectureBackup
 }
 
 export function parseLectureBackupJson(json: string) {

@@ -130,12 +130,22 @@ try {
   const stream = await download.createReadStream()
   assert(stream, 'download stream was not available')
   const exported = JSON.parse(await text(stream))
+  const backupPath = path.join(tempDir, 'backup.json')
+  await writeFile(backupPath, JSON.stringify(exported, null, 2))
 
   assert(exported.lecture.title === 'Browser Smoke Lecture Renamed', 'exported lecture title did not match')
   assert(exported.segments?.[0]?.text.includes('Entropy connects heat'), 'exported transcript segment was missing')
   assert(exported.segments?.[0]?.speaker === 'Professor Rivera', 'exported speaker label was missing')
   assert(exported.materials?.[0]?.name === 'entropy-slides.txt', 'exported material metadata was missing')
   assert(exported.materials?.[0]?.linkedSegmentIds?.length === 1, 'exported material link was missing')
+
+  step('importing JSON backup')
+  await page.getByRole('button', { name: 'Library' }).click()
+  await page.locator('input[accept="application/json,.json"]').setInputFiles(backupPath)
+  await page.getByText('Imported backup: Browser Smoke Lecture Renamed (imported).').waitFor()
+  await page.getByRole('button', { name: 'Capture' }).click()
+  await page.getByText('entropy-slides.txt').waitFor()
+  await page.getByText('Segment 1 (0:00)').waitFor()
   step('passed')
 } catch (error) {
   console.error(error)
