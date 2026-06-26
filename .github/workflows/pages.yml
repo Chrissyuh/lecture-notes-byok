@@ -24,9 +24,11 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --legacy-peer-deps
+      - run: npx playwright install --with-deps chromium
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      - run: npm run test:browser
       - uses: actions/upload-pages-artifact@v5
         with:
           path: dist

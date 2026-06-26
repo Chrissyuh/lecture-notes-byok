@@ -21,6 +21,7 @@ Public-source, local-first, bring-your-own-key AI lecture note-taking.
 - OpenAI transcription and structured note generation adapters.
 - Markdown, JSON backup, and Anki CSV export.
 - Installable PWA build through `vite-plugin-pwa`.
+- Browser smoke coverage for lecture creation, transcript storage, material linking, and JSON export.
 
 ## Privacy posture
 
@@ -37,6 +38,7 @@ npm install --legacy-peer-deps
 npm run dev
 npm test
 npm run build
+npm run test:browser
 ```
 
 ## Roadmap
@@ -44,7 +46,7 @@ npm run build
 - Add provider adapters for Gemini, Anthropic-compatible notes, and local transcription.
 - Add speaker diarization review and segment editing.
 - Add deeper PDF/slide text extraction and timestamp alignment.
-- Add automated browser tests around recording, storage, and export flows.
+- Expand automated browser tests around recording and provider queue flows.
 
 ## License
 
