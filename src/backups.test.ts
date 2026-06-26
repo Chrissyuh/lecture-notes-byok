@@ -45,6 +45,15 @@ describe('lecture backup import', () => {
             citations: [{ label: 'Cells', segmentIds: ['seg-0'] }],
           },
         ],
+        cardReviews: [
+          {
+            noteId: 'old-note',
+            cardId: 'old-note-0',
+            correctCount: 2,
+            missedCount: 1,
+            lastReviewedAt: '2026-06-26T00:30:00.000Z',
+          },
+        ],
       },
       'course_default',
       '2026-06-26T00:00:00.000Z',
@@ -57,6 +66,14 @@ describe('lecture backup import', () => {
     expect(prepared.segments[0].speaker).toBe('Instructor')
     expect(prepared.notes[0].lectureId).toBe(prepared.lecture.id)
     expect(prepared.notes[0].citations[0].segmentIds[0]).toBe(prepared.segments[0].id)
+    expect(prepared.cardReviews[0]).toMatchObject({
+      lectureId: prepared.lecture.id,
+      noteId: prepared.notes[0].id,
+      cardId: `${prepared.notes[0].id}-0`,
+      correctCount: 2,
+      missedCount: 1,
+      lastReviewedAt: '2026-06-26T00:30:00.000Z',
+    })
     expect(prepared.materials[0]).toMatchObject({
       lectureId: prepared.lecture.id,
       name: 'cell-slides.txt',

@@ -43,6 +43,7 @@ import {
   type AudioChunk,
   type AppSettings,
   type Course,
+  type FlashcardReview,
   type Lecture,
   type LectureMaterial,
   type LectureNote,
@@ -52,7 +53,7 @@ import {
 } from './domain'
 import { searchLibrary, type LibrarySearchResult } from './librarySearch'
 import { downloadText, flashcardsToCsv, noteToMarkdown } from './exporters'
-import { studyCardsFromNote, wrappedCardIndex } from './flashcards'
+import { nextReviewCounts, reviewForCard, reviewLabel, studyCardsFromNote, wrappedCardIndex } from './flashcards'
 import {
   editableDraftToNotePatch,
   hasNoteDraftChanges,
@@ -103,6 +104,7 @@ function App() {
   const [segments, setSegments] = useState<TranscriptSegment[]>([])
   const [notes, setNotes] = useState<LectureNote[]>([])
   const [materials, setMaterials] = useState<LectureMaterial[]>([])
+  const [cardReviews, setCardReviews] = useState<FlashcardReview[]>([])
   const [jobs, setJobs] = useState<LocalJob[]>([])
   const [provider, setProvider] = useState<ProviderProfile>(DEFAULT_PROVIDER)
   const [sessionKey, setSessionKey] = useState('')
@@ -133,6 +135,7 @@ function App() {
     audioChunks: 0,
     transcriptSegments: 0,
     notes: 0,
+    reviewedCards: 0,
     materials: 0,
     queuedJobs: 0,
     audioBytes: 0,
@@ -194,6 +197,7 @@ function App() {
   const latestNote = notes[0]
   const studyCards = useMemo(() => studyCardsFromNote(latestNote), [latestNote])
   const activeStudyCard = studyCards[studyCardIndex]
+  const activeStudyReview = activeStudyCard ? reviewForCard(activeStudyCard.id, cardReviews) : undefined
   const queueSummary = useMemo(() => summarizeJobs(jobs), [jobs])
   const segmentLabelById = useMemo(
     () =>
@@ -243,11 +247,12 @@ function App() {
   }
 
   async function refreshLectureData(lectureId: string) {
-    const [nextChunks, nextSegments, nextNotes, nextMaterials, nextJobs] = await Promise.all([
+    const [nextChunks, nextSegments, nextNotes, nextMaterials, nextCardReviews, nextJobs] = await Promise.all([
       db.chunks.where('lectureId').equals(lectureId).sortBy('index'),
       db.segments.where('lectureId').equals(lectureId).sortBy('index'),
       db.notes.where('lectureId').equals(lectureId).reverse().sortBy('createdAt'),
       db.materials.where('lectureId').equals(lectureId).sortBy('createdAt'),
+      db.cardReviews.where('lectureId').equals(lectureId).sortBy('lastReviewedAt'),
       db.jobs.where('lectureId').equals(lectureId).sortBy('createdAt'),
     ])
     const orderedNotes = nextNotes.reverse()
@@ -255,6 +260,7 @@ function App() {
     setSegments(nextSegments)
     setNotes(orderedNotes)
     setMaterials(nextMaterials)
+    setCardReviews(nextCardReviews)
     setJobs(nextJobs)
     setSegmentDrafts(Object.fromEntries(nextSegments.map((segment) => [segment.id, segment.text])))
     setSpeakerDrafts(Object.fromEntries(nextSegments.map((segment) => [segment.id, segment.speaker ?? ''])))
@@ -481,6 +487,27 @@ function App() {
     setShowStudyAnswer(false)
   }
 
+  async function recordStudyResult(remembered: boolean) {
+    if (!selectedLecture || !latestNote || !activeStudyCard) return
+    const reviewedAt = now()
+    const counts = nextReviewCounts(activeStudyReview, remembered)
+    const review: FlashcardReview = {
+      id: activeStudyReview?.id ?? `review_${activeStudyCard.id}`,
+      lectureId: selectedLecture.id,
+      noteId: latestNote.id,
+      cardId: activeStudyCard.id,
+      ...counts,
+      lastReviewedAt: reviewedAt,
+    }
+
+    await db.cardReviews.put(review)
+    await db.lectures.update(selectedLecture.id, { updatedAt: reviewedAt })
+    await refreshLists()
+    await refreshLectureData(selectedLecture.id)
+    moveStudyCard(1)
+    setStatus(remembered ? 'Marked flashcard as known.' : 'Marked flashcard as missed.')
+  }
+
   async function importAudioFiles(files: FileList | null) {
     if (!selectedLecture || !files?.length) return
 
@@ -519,10 +546,11 @@ function App() {
     setImportingBackup(true)
     try {
       const prepared = prepareLectureBackupImport(JSON.parse(await file.text()), selectedCourseId)
-      await db.transaction('rw', db.lectures, db.segments, db.notes, db.materials, async () => {
+      await db.transaction('rw', db.lectures, db.segments, db.notes, db.cardReviews, db.materials, async () => {
         await db.lectures.put(prepared.lecture)
         await db.segments.bulkPut(prepared.segments)
         await db.notes.bulkPut(prepared.notes)
+        await db.cardReviews.bulkPut(prepared.cardReviews)
         await db.materials.bulkPut(prepared.materials)
       })
       setSelectedLectureId(prepared.lecture.id)
@@ -864,6 +892,7 @@ function App() {
           lecture: selectedLecture,
           segments,
           notes,
+          cardReviews,
           materials: materials.map((material) => ({
             id: material.id,
             lectureId: material.lectureId,
@@ -903,6 +932,7 @@ function App() {
     setSegments([])
     setNotes([])
     setMaterials([])
+    setCardReviews([])
     setJobs([])
     setSegmentDrafts({})
     setSpeakerDrafts({})
@@ -1276,6 +1306,7 @@ function App() {
                   <span>
                     Card {studyCardIndex + 1} of {studyCards.length}
                   </span>
+                  <span>{reviewLabel(activeStudyReview)}</span>
                   <strong>{activeStudyCard.front}</strong>
                   {showStudyAnswer && <p>{activeStudyCard.back}</p>}
                   <div className="button-row">
@@ -1284,6 +1315,8 @@ function App() {
                       {showStudyAnswer ? 'Hide Answer' : 'Show Answer'}
                     </button>
                     <button onClick={() => moveStudyCard(1)}>Next</button>
+                    <button onClick={() => recordStudyResult(false)}>Missed</button>
+                    <button onClick={() => recordStudyResult(true)}>Known</button>
                   </div>
                 </div>
               ) : (
@@ -1511,6 +1544,10 @@ function App() {
                 <span>
                   <strong>{localStats.notes}</strong>
                   Notes
+                </span>
+                <span>
+                  <strong>{localStats.reviewedCards}</strong>
+                  Reviewed cards
                 </span>
                 <span>
                   <strong>{localStats.materials}</strong>

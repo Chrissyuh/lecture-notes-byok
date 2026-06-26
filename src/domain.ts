@@ -96,6 +96,16 @@ export interface LectureNote {
   editedAt?: string
 }
 
+export interface FlashcardReview {
+  id: string
+  lectureId: string
+  noteId: string
+  cardId: string
+  correctCount: number
+  missedCount: number
+  lastReviewedAt: string
+}
+
 export interface ProviderProfile {
   id: ProviderId
   baseUrl: string

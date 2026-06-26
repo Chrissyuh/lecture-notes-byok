@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { LectureNote } from './domain'
-import { studyCardsFromNote, wrappedCardIndex } from './flashcards'
+import type { FlashcardReview, LectureNote } from './domain'
+import { nextReviewCounts, reviewForCard, reviewLabel, studyCardsFromNote, wrappedCardIndex } from './flashcards'
 
 const note: LectureNote = {
   id: 'note-1',
@@ -35,5 +35,23 @@ describe('flashcard study helpers', () => {
     expect(wrappedCardIndex(0, -1, 3)).toBe(2)
     expect(wrappedCardIndex(2, 1, 3)).toBe(0)
     expect(wrappedCardIndex(0, 1, 0)).toBe(0)
+  })
+
+  it('summarizes and updates review progress', () => {
+    const review: FlashcardReview = {
+      id: 'review-1',
+      lectureId: 'lecture-1',
+      noteId: 'note-1',
+      cardId: 'note-1-0',
+      correctCount: 2,
+      missedCount: 1,
+      lastReviewedAt: '2026-06-26T00:00:00.000Z',
+    }
+
+    expect(reviewForCard('note-1-0', [review])).toBe(review)
+    expect(reviewLabel(review)).toBe('2 known / 1 missed')
+    expect(reviewLabel(undefined)).toBe('Not reviewed')
+    expect(nextReviewCounts(review, true)).toEqual({ correctCount: 3, missedCount: 1 })
+    expect(nextReviewCounts(review, false)).toEqual({ correctCount: 2, missedCount: 2 })
   })
 })

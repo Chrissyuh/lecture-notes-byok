@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { newId, type Lecture, type LectureMaterial, type LectureNote, type TranscriptSegment } from './domain'
+import { newId, type FlashcardReview, type Lecture, type LectureMaterial, type LectureNote, type TranscriptSegment } from './domain'
 
 const lectureBackupSchema = z.object({
   lecture: z.object({
@@ -37,6 +37,7 @@ const lectureBackupSchema = z.object({
     .default([]),
   notes: z.array(
     z.object({
+      id: z.string().optional(),
       model: z.string(),
       summary: z.string(),
       outline: z.array(z.string()).default([]),
@@ -50,6 +51,17 @@ const lectureBackupSchema = z.object({
       editedAt: z.string().optional(),
     }),
   ),
+  cardReviews: z
+    .array(
+      z.object({
+        noteId: z.string(),
+        cardId: z.string(),
+        correctCount: z.number().default(0),
+        missedCount: z.number().default(0),
+        lastReviewedAt: z.string().optional(),
+      }),
+    )
+    .default([]),
 })
 
 export interface PreparedLectureBackup {
@@ -57,12 +69,14 @@ export interface PreparedLectureBackup {
   segments: TranscriptSegment[]
   notes: LectureNote[]
   materials: LectureMaterial[]
+  cardReviews: FlashcardReview[]
 }
 
 export function prepareLectureBackupImport(raw: unknown, courseId = 'course_default', importedAt = new Date().toISOString()) {
   const parsed = lectureBackupSchema.parse(raw)
   const lectureId = newId('lecture')
   const segmentIdMap = new Map<string, string>()
+  const noteIdMap = new Map<string, string>()
 
   const lecture: Lecture = {
     id: lectureId,
@@ -112,26 +126,48 @@ export function prepareLectureBackupImport(raw: unknown, courseId = 'course_defa
     }
   })
 
-  const notes: LectureNote[] = parsed.notes.map((note) => ({
-    id: newId('note'),
-    lectureId,
-    model: note.model,
-    summary: note.summary.trim(),
-    outline: note.outline,
-    keyPoints: note.keyPoints,
-    definitions: note.definitions,
-    openQuestions: note.openQuestions,
-    reviewTasks: note.reviewTasks,
-    flashcards: note.flashcards,
-    citations: note.citations.map((citation) => ({
-      label: citation.label,
-      segmentIds: citation.segmentIds.map((id) => segmentIdMap.get(id) ?? id),
-    })),
-    createdAt: note.createdAt ?? importedAt,
-    editedAt: note.editedAt,
-  }))
+  const notes: LectureNote[] = parsed.notes.map((note, index) => {
+    const id = newId('note')
+    if (note.id) noteIdMap.set(note.id, id)
+    noteIdMap.set(`note-${index}`, id)
+    return {
+      id,
+      lectureId,
+      model: note.model,
+      summary: note.summary.trim(),
+      outline: note.outline,
+      keyPoints: note.keyPoints,
+      definitions: note.definitions,
+      openQuestions: note.openQuestions,
+      reviewTasks: note.reviewTasks,
+      flashcards: note.flashcards,
+      citations: note.citations.map((citation) => ({
+        label: citation.label,
+        segmentIds: citation.segmentIds.map((id) => segmentIdMap.get(id) ?? id),
+      })),
+      createdAt: note.createdAt ?? importedAt,
+      editedAt: note.editedAt,
+    }
+  })
 
-  return { lecture, segments, notes, materials } satisfies PreparedLectureBackup
+  const cardReviews: FlashcardReview[] = parsed.cardReviews
+    .map((review) => {
+      const noteId = noteIdMap.get(review.noteId)
+      if (!noteId) return undefined
+      const cardIndex = review.cardId.startsWith(`${review.noteId}-`) ? review.cardId.slice(review.noteId.length + 1) : undefined
+      return {
+        id: newId('review'),
+        lectureId,
+        noteId,
+        cardId: cardIndex ? `${noteId}-${cardIndex}` : review.cardId,
+        correctCount: review.correctCount,
+        missedCount: review.missedCount,
+        lastReviewedAt: review.lastReviewedAt ?? importedAt,
+      } satisfies FlashcardReview
+    })
+    .filter((review): review is FlashcardReview => Boolean(review))
+
+  return { lecture, segments, notes, materials, cardReviews } satisfies PreparedLectureBackup
 }
 
 export function parseLectureBackupJson(json: string) {

@@ -5,6 +5,7 @@ import {
   type AppSettings,
   type AudioChunk,
   type Course,
+  type FlashcardReview,
   type Lecture,
   type LectureMaterial,
   type LectureNote,
@@ -19,6 +20,7 @@ class LectureNotesDb extends Dexie {
   chunks!: Table<AudioChunk, string>
   segments!: Table<TranscriptSegment, string>
   notes!: Table<LectureNote, string>
+  cardReviews!: Table<FlashcardReview, string>
   materials!: Table<LectureMaterial, string>
   jobs!: Table<LocalJob, string>
   providers!: Table<ProviderProfile, string>
@@ -56,6 +58,18 @@ class LectureNotesDb extends Dexie {
       providers: 'id',
       settings: 'id',
     })
+    this.version(4).stores({
+      courses: 'id, createdAt',
+      lectures: 'id, courseId, status, updatedAt',
+      chunks: 'id, lectureId, index, transcribedAt',
+      segments: 'id, lectureId, index',
+      notes: 'id, lectureId, createdAt',
+      cardReviews: 'id, lectureId, noteId, cardId, lastReviewedAt',
+      materials: 'id, lectureId, kind, createdAt',
+      jobs: 'id, lectureId, type, status, runAfter, targetId',
+      providers: 'id',
+      settings: 'id',
+    })
   }
 }
 
@@ -66,6 +80,7 @@ export interface LocalDataStats {
   audioChunks: number
   transcriptSegments: number
   notes: number
+  reviewedCards: number
   materials: number
   queuedJobs: number
   audioBytes: number
@@ -99,22 +114,24 @@ export async function ensureBootstrapData() {
 }
 
 export async function deleteLectureCascade(lectureId: string) {
-  await db.transaction('rw', [db.lectures, db.chunks, db.segments, db.notes, db.materials, db.jobs], async () => {
+  await db.transaction('rw', [db.lectures, db.chunks, db.segments, db.notes, db.cardReviews, db.materials, db.jobs], async () => {
     await db.lectures.delete(lectureId)
     await db.chunks.where('lectureId').equals(lectureId).delete()
     await db.segments.where('lectureId').equals(lectureId).delete()
     await db.notes.where('lectureId').equals(lectureId).delete()
+    await db.cardReviews.where('lectureId').equals(lectureId).delete()
     await db.materials.where('lectureId').equals(lectureId).delete()
     await db.jobs.where('lectureId').equals(lectureId).delete()
   })
 }
 
 export async function getLocalDataStats(): Promise<LocalDataStats> {
-  const [lectures, audioChunks, transcriptSegments, notes, materials, queuedJobs, chunks, materialRows] = await Promise.all([
+  const [lectures, audioChunks, transcriptSegments, notes, reviewedCards, materials, queuedJobs, chunks, materialRows] = await Promise.all([
     db.lectures.count(),
     db.chunks.count(),
     db.segments.count(),
     db.notes.count(),
+    db.cardReviews.count(),
     db.materials.count(),
     db.jobs.where('status').anyOf(['queued', 'running', 'error']).count(),
     db.chunks.toArray(),
@@ -126,6 +143,7 @@ export async function getLocalDataStats(): Promise<LocalDataStats> {
     audioChunks,
     transcriptSegments,
     notes,
+    reviewedCards,
     materials,
     queuedJobs,
     audioBytes: chunks.reduce((total, chunk) => total + (chunk.sizeBytes || chunk.blob.size || 0), 0),
@@ -134,12 +152,13 @@ export async function getLocalDataStats(): Promise<LocalDataStats> {
 }
 
 export async function deleteAllLectureData() {
-  await db.transaction('rw', [db.lectures, db.chunks, db.segments, db.notes, db.materials, db.jobs], async () => {
+  await db.transaction('rw', [db.lectures, db.chunks, db.segments, db.notes, db.cardReviews, db.materials, db.jobs], async () => {
     await Promise.all([
       db.lectures.clear(),
       db.chunks.clear(),
       db.segments.clear(),
       db.notes.clear(),
+      db.cardReviews.clear(),
       db.materials.clear(),
       db.jobs.clear(),
     ])

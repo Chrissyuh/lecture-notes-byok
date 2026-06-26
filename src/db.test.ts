@@ -1,7 +1,16 @@
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db, deleteAllLectureData, deleteLectureCascade, ensureBootstrapData, getLocalDataStats } from './db'
-import type { AudioChunk, Lecture, LectureMaterial, LectureNote, LocalJob, ProviderProfile, TranscriptSegment } from './domain'
+import type {
+  AudioChunk,
+  FlashcardReview,
+  Lecture,
+  LectureMaterial,
+  LectureNote,
+  LocalJob,
+  ProviderProfile,
+  TranscriptSegment,
+} from './domain'
 
 describe('local database', () => {
   beforeEach(async () => {
@@ -95,6 +104,15 @@ describe('local database', () => {
       citations: [],
       createdAt,
     }
+    const review: FlashcardReview = {
+      id: 'review-1',
+      lectureId: lecture.id,
+      noteId: note.id,
+      cardId: `${note.id}-0`,
+      correctCount: 1,
+      missedCount: 0,
+      lastReviewedAt: createdAt,
+    }
     const localJob: LocalJob = {
       id: 'job-1',
       lectureId: lecture.id,
@@ -122,6 +140,7 @@ describe('local database', () => {
     await db.chunks.put(chunk)
     await db.segments.put(segment)
     await db.notes.put(note)
+    await db.cardReviews.put(review)
     await db.materials.put(material)
     await db.jobs.put(localJob)
 
@@ -131,6 +150,7 @@ describe('local database', () => {
     await expect(db.chunks.count()).resolves.toBe(0)
     await expect(db.segments.count()).resolves.toBe(0)
     await expect(db.notes.count()).resolves.toBe(0)
+    await expect(db.cardReviews.count()).resolves.toBe(0)
     await expect(db.materials.count()).resolves.toBe(0)
     await expect(db.jobs.count()).resolves.toBe(0)
   })
@@ -193,12 +213,22 @@ describe('local database', () => {
       linkedSegmentIds: [],
       createdAt,
     })
+    await db.cardReviews.put({
+      id: 'review-1',
+      lectureId: lecture.id,
+      noteId: 'note-1',
+      cardId: 'note-1-0',
+      correctCount: 1,
+      missedCount: 0,
+      lastReviewedAt: createdAt,
+    })
 
     await expect(getLocalDataStats()).resolves.toMatchObject({
       lectures: 1,
       audioChunks: 1,
       transcriptSegments: 1,
       notes: 0,
+      reviewedCards: 1,
       materials: 1,
       queuedJobs: 1,
       audioBytes: 5,
@@ -212,6 +242,7 @@ describe('local database', () => {
       audioChunks: 0,
       transcriptSegments: 0,
       notes: 0,
+      reviewedCards: 0,
       materials: 0,
       queuedJobs: 0,
       audioBytes: 0,
