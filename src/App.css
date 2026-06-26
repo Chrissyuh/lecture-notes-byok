@@ -188,6 +188,28 @@ label {
   font-size: 13px;
 }
 
+.file-picker {
+  width: fit-content;
+  min-height: 40px;
+  border: 1px solid #cbd4ce;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #18201f;
+  padding: 0 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.file-picker input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .transcript {
   white-space: pre-wrap;
   overflow: auto;

@@ -43,6 +43,8 @@ describe('local database', () => {
       index: 0,
       blob: new Blob(['audio']),
       mimeType: 'audio/webm',
+      source: 'recording',
+      sizeBytes: 5,
       durationMs: 60_000,
       createdAt,
     }

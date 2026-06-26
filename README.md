@@ -5,6 +5,7 @@ Public-source, local-first, bring-your-own-key AI lecture note-taking.
 ## What works now
 
 - Browser microphone capture with local audio chunks stored in IndexedDB.
+- Audio/video import for downloaded class recordings, split into provider-sized local chunks.
 - Manual transcript entry for testing and imported captions.
 - OpenAI BYOK settings with session-only keys by default.
 - Optional passphrase-encrypted key storage using Web Crypto.
@@ -25,6 +26,7 @@ Users must confirm they have permission to record before capture starts. Recordi
 ```powershell
 npm install --legacy-peer-deps
 npm run dev
+npm test
 npm run build
 ```
 

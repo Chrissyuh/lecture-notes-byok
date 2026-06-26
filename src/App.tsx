@@ -9,11 +9,13 @@ import {
   Save,
   ShieldCheck,
   Square,
+  Upload,
   Trash2,
   WandSparkles,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
+import { buildImportedAudioChunks, chunkLimitLabel } from './audioChunks'
 import { decryptSecret, encryptSecret } from './cryptoBox'
 import { db, deleteLectureCascade, ensureBootstrapData } from './db'
 import {
@@ -64,6 +66,7 @@ function App() {
   const [lectureTitle, setLectureTitle] = useState('New lecture')
   const [consentConfirmed, setConsentConfirmed] = useState(false)
   const [manualTranscript, setManualTranscript] = useState('')
+  const [importingAudio, setImportingAudio] = useState(false)
 
   useEffect(() => {
     void ensureBootstrapData().then(() => setReady(true))
@@ -151,6 +154,8 @@ function App() {
         index,
         blob: event.data,
         mimeType: event.data.type || mimeType,
+        source: 'recording',
+        sizeBytes: event.data.size,
         durationMs: elapsed,
         createdAt: now(),
       }
@@ -202,6 +207,38 @@ function App() {
     setStatus('Manual transcript segment added.')
     await refreshLists()
     await refreshLectureData(selectedLecture.id)
+  }
+
+  async function importAudioFiles(files: FileList | null) {
+    if (!selectedLecture || !files?.length) return
+
+    setImportingAudio(true)
+    try {
+      let nextIndex = await db.chunks.where('lectureId').equals(selectedLecture.id).count()
+      const createdAt = now()
+      const imported: AudioChunk[] = []
+
+      for (const file of Array.from(files)) {
+        const fileChunks = buildImportedAudioChunks({
+          lectureId: selectedLecture.id,
+          file,
+          startIndex: nextIndex,
+          createdAt,
+        })
+        imported.push(...fileChunks)
+        nextIndex += fileChunks.length
+      }
+
+      await db.chunks.bulkPut(imported)
+      await db.lectures.update(selectedLecture.id, { status: 'processing', updatedAt: now() })
+      await refreshLists()
+      await refreshLectureData(selectedLecture.id)
+      setStatus(`Imported ${imported.length} audio chunk${imported.length === 1 ? '' : 's'} for transcription.`)
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Audio import failed.')
+    } finally {
+      setImportingAudio(false)
+    }
   }
 
   async function transcribePendingChunks() {
@@ -447,10 +484,33 @@ function App() {
               <div className="chunk-list">
                 {chunks.map((chunk) => (
                   <span key={chunk.id}>
-                    Chunk {chunk.index + 1} · {msLabel(chunk.durationMs)} · {chunk.transcribedAt ? 'done' : 'pending'}
+                    Chunk {chunk.index + 1} - {chunk.source} -{' '}
+                    {chunk.sizeBytes ? `${Math.ceil(chunk.sizeBytes / 1024)} KB` : msLabel(chunk.durationMs)} -{' '}
+                    {chunk.transcribedAt ? 'done' : 'pending'}
                   </span>
                 ))}
               </div>
+            </section>
+
+            <section className="panel wide">
+              <h2>Import Audio</h2>
+              <p className="muted">
+                Import lecture audio or downloaded class recordings. Files are split into local chunks of {chunkLimitLabel()} or less before transcription.
+              </p>
+              <label className="file-picker">
+                <Upload size={18} />
+                Choose audio files
+                <input
+                  type="file"
+                  accept="audio/*,video/webm,video/mp4"
+                  multiple
+                  disabled={!selectedLecture || importingAudio}
+                  onChange={(event) => {
+                    void importAudioFiles(event.target.files)
+                    event.currentTarget.value = ''
+                  }}
+                />
+              </label>
             </section>
 
             <section className="panel wide">
@@ -523,7 +583,7 @@ function App() {
                   <span>
                     <strong>{lecture.title}</strong>
                     <small>
-                      {lecture.status} · {new Date(lecture.updatedAt).toLocaleString()}
+                      {lecture.status} - {new Date(lecture.updatedAt).toLocaleString()}
                     </small>
                   </span>
                   <Trash2

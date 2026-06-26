@@ -27,6 +27,9 @@ export interface AudioChunk {
   index: number
   blob: Blob
   mimeType: string
+  source: 'recording' | 'import'
+  originalName?: string
+  sizeBytes: number
   durationMs: number
   createdAt: string
   transcribedAt?: string
